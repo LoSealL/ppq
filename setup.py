@@ -1,10 +1,18 @@
 from setuptools import find_packages, setup
-from ppq.core import PPQ_CONFIG
 
 def readme():
     with open('README.md', encoding='utf-8') as f:
         content = f.read()
     return content
+
+
+def get_version():
+    vars = {}
+    with open("ppq/core/config.py", encoding="utf-8") as f:
+        code = compile(f.read(), "ppq/core/config.py", mode="exec")
+    exec(code, locals=vars)
+    return vars["PPQ_CONFIG"].VERSION
+
 
 setup(author='ppq',
       author_email='dcp-ppq@sensetime.com',
@@ -26,6 +34,6 @@ setup(author='ppq',
         ],
       license='Apache License 2.0',
       include_package_data=True,
-      version=PPQ_CONFIG.VERSION,
+      version=get_version(),
       zip_safe=False
     )
