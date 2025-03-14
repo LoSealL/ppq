@@ -10,7 +10,11 @@ def get_version():
     vars = {}
     with open("ppq/core/config.py", encoding="utf-8") as f:
         code = compile(f.read(), "ppq/core/config.py", mode="exec")
-    exec(code, locals=vars)
+    # python 3.12 and before, exec signature was:
+    # exec(source, globals, locals, /, *, closure=None)
+    # While python 3.13 signature becomes:
+    # exec(source, /, globals, locals, *, closure=None)
+    exec(code, None, vars)
     return vars["PPQ_CONFIG"].VERSION
 
 
