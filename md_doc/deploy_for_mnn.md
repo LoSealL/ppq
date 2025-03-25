@@ -62,7 +62,7 @@ for caffe:
 
 ## Quant Your Model(take resnet18 as an example)
 ```shell
-./quantized.out resnet18.mnn  resnet18_quant.mnn quant_cfg.json 
+./quantized.out resnet18.mnn  resnet18_quant.mnn quant_cfg.json
 ```
 The quantized mnn model can be obtained: resnet18_quant.mnn
 
@@ -72,4 +72,3 @@ The quantized mnn model can be obtained: resnet18_quant.mnn
 ## Note that data.bin should be preprocessed data
 
 ## If there is a bad case of the model accuracy dropping, please contact us.
-

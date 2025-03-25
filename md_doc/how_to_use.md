@@ -90,7 +90,7 @@ different quantization schemes and exported file formats.
 
 
 ## Prepare Your Setting
-Quantization setting acts as a guider which conducts the quantization process. PPQ has provided default 
+Quantization setting acts as a guider which conducts the quantization process. PPQ has provided default
 settings for some backend platforms, see [ppq.api.setting](../ppq/api/setting.py) for more details
 ```python
 from ppq import QuantizationSettingFactory
@@ -135,7 +135,7 @@ ppq_graph_ir = dispatch_graph(ppq_graph_ir, target_platform, setting)
 then we can begin our quantization process using all prepared information
 
 ## Initialize An Executor
-All operations are exectuted by *TorchExecutor* instances in PPQ, and as you can see from
+All operations are executed by *TorchExecutor* instances in PPQ, and as you can see from
 [default.py](../ppq/executor/torch/default.py), the inner operation executing logic
 is implemented using pytorch
 ```python
