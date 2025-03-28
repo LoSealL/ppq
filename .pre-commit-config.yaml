@@ -1,30 +1,32 @@
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.1.0
+    rev: v5.0.0
     hooks:
       - id: trailing-whitespace
       - id: check-yaml
       - id: end-of-file-fixer
       - id: requirements-txt-fixer
-      - id: double-quote-string-fixer
       - id: check-merge-conflict
-      - id: fix-encoding-pragma
-        args: ["--remove"]
-      - id: mixed-line-ending
-        args: ["--fix=lf"]
-  - repo: https://github.com/markdownlint/markdownlint
-    rev: v0.11.0
+  - repo: https://github.com/codespell-project/codespell
+    rev: v2.4.1
     hooks:
-      - id: markdownlint
-        args:
-          [
-            "-r",
-            "~MD002,~MD013,~MD029,~MD033,~MD034",
-            "-t",
-            "allow_different_nesting",
-          ]
-  - repo: https://github.com/myint/docformatter
-    rev: v1.4
+    - id: codespell
+      args: [-w, -I=.github/wordsbag]
+      exclude: (^mppq/csrc)
+  - repo: https://github.com/PyCQA/isort
+    rev: 6.0.1
     hooks:
-      - id: docformatter
-        args: ["--in-place", "--wrap-descriptions", "79"]
+    - id: isort
+      args:
+      - '--profile=black'
+  - repo: https://github.com/psf/black
+    rev: 25.1.0
+    hooks:
+    - id: black
+      args:
+      - '-vv'
+  - repo: https://github.com/pycqa/flake8
+    rev: 7.1.2
+    hooks:
+    - id: flake8
+      additional_dependencies: [Flake8-pyproject]

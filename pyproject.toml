@@ -1,0 +1,74 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mppq"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+    { name = "PPQ", email = "dcp-ppq@sensetime.com" },
+    { name = "Wenyi Tang", email = "wenyitang@outlook.com" },
+]
+license = { file = "LICENSE" }
+classifiers = [
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+description = "PPQ is an offline quantization tools"
+dependencies = [
+    "numpy",
+    "onnx",
+    "pooch",
+    "protobuf>=5,<6",
+    "tabulate",
+    "torch>=2.0.0",
+    "tqdm",
+]
+dynamic = ["version"]
+
+[project.urls]
+Home = "https://github.com/LoSealL/ppq"
+
+[tool.setuptools.dynamic]
+version = { attr = "mppq.__version__" }
+
+[tool.setuptools.packages.find]
+include = ["mppq"]
+
+[tool.pyright]
+include = ["mppq"]
+
+[tool.flake8]
+ignore = ['E203', 'E231', 'E241', 'W503']
+per-file-ignores = ['__init__.py:F401']
+max-line-length = 999
+max-complexity = 30
+count = true
+
+[tool.isort]
+profile = "black"
+skip_glob = []
+
+[tool.pylint."MAIN"]
+ignore-paths = []
+
+[tool.pylint."MESSAGES CONTROL"]
+disable = [
+    "line-too-long",
+    "logging-fstring-interpolation",
+    "missing-module-docstring",
+    "no-member",
+    "no-name-in-module",
+    "fixme",
+    "too-many-lines",
+    "R",
+    "I",
+]
+
+[tool.mypy]
+disable_error_code = ["assignment", "import-untyped", "return-value", "return"]
+exclude = []

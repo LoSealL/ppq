@@ -4,7 +4,11 @@
 **/*.out
 **/*.csv
 **/*.model
+.coverage
+*.whl
 __pycache__/
+.vscode/
+.*_cache/
 /build
 /dist
-/ppq.egg-info
+/*.egg-info

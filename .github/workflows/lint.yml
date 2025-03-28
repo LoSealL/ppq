@@ -5,29 +5,43 @@ on: [push, pull_request]
 jobs:
   lint:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.12", "3.13"]
     steps:
-      - uses: actions/checkout@v2
-      - name: Set up Python 3.7
-        uses: actions/setup-python@v2
+      - uses: actions/checkout@v4
         with:
-          python-version: 3.7
+          fetch-depth: 2
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
       - name: Install pre-commit hook
         run: |
           pwd&&ls
-          pip install pre-commit
+          python -m pip install -U pre-commit
           pre-commit --version
       - name: pre-commit checking
+        run: pre-commit run -s HEAD^ -o HEAD
+  run-pyright:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.12"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/Jod
+      - name: pyright type check
         run: |
-          git fetch
-          git branch -a
-          git diff --name-status remotes/origin/master HEAD
-          updated_files=`git diff --name-status remotes/origin/master HEAD|awk '{print$ 2}'` 
-          echo $updated_files
-          for file in $updated_files
-          do
-            if [ "${file##*.}" = "py" ]; then
-              echo $file
-              pre-commit run --files $file --show-diff-on-failure
-            fi
-          done
-
+          python -m pip install -U pyright
+          python -m pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install -e .
+          # pyright mppq
