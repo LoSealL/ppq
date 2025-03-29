@@ -1,1 +1,1 @@
-from .attribute import process_attribute
+from mppq.utils.attribute import process_attribute

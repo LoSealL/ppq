@@ -1,8 +1,7 @@
 from enum import Enum
 
+from mppq.ir.base.opdef import Operation, Variable
 from mppq.quant import OperationQuantizationConfig, TargetPrecision
-
-from .opdef import Operation, Variable
 
 
 class GraphCommandType(Enum):

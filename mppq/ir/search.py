@@ -11,11 +11,10 @@ from typing import (
     Set,
 )
 
+from mppq.ir.base.command import GraphCommand, GraphCommandType
+from mppq.ir.base.graph import BaseGraph, Operation
+from mppq.ir.base.processor import GraphCommandProcessor, T
 from mppq.logger import warning
-
-from .base.command import GraphCommand, GraphCommandType
-from .base.graph import BaseGraph, Operation
-from .base.processor import GraphCommandProcessor, T
 
 
 class PointPattern(Protocol):

@@ -1,9 +1,11 @@
+from typing import Iterable, Optional
+
 from mppq.defs import empty_ppq_cache
+from mppq.executor.base import BaseGraphExecutor
 from mppq.ir.base.graph import BaseGraph
 from mppq.ir.base.quantize import QuantableOperation
-from mppq.quantization.qfunction import PPQuantFunction
-
-from .base import OPTIM_ALGORITHMS, QuantizationOptimizationPass
+from mppq.quantization.optim.base import OPTIM_ALGORITHMS, QuantizationOptimizationPass
+from mppq.utils.qfunction import ppq_fake_quant
 
 
 @OPTIM_ALGORITHMS.register()
@@ -18,10 +20,16 @@ class ParameterBakingPass(QuantizationOptimizationPass):
 
     def __init__(self) -> None:
         super().__init__()
-        self._quantize_function = PPQuantFunction
+        self._quantize_function = ppq_fake_quant
 
     @empty_ppq_cache
-    def optimize(self, graph: BaseGraph, **kwargs):
+    def optimize(
+        self,
+        graph: BaseGraph,
+        dataloader: Optional[Iterable] = None,
+        executor: Optional[BaseGraphExecutor] = None,
+        **kwargs,
+    ):
         for _, operation in graph.operations.items():
             if not isinstance(operation, QuantableOperation):
                 continue

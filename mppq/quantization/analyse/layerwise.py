@@ -11,9 +11,8 @@ from mppq.executor.base import BaseGraphExecutor
 from mppq.ir.base.graph import BaseGraph
 from mppq.ir.base.quantize import QuantableOperation
 from mppq.ir.deploy import QuantableGraph
+from mppq.quantization.analyse.util import MeasurePrinter, MeasureRecorder
 from mppq.utils.fetch import tensor_random_fetch
-
-from .util import MeasurePrinter, MeasureRecorder
 
 
 def layerwise_error_analyse(  # noqa: C901
@@ -160,6 +159,8 @@ def variable_analyse(
     steps: int = 8,
     dequantize: bool = False,
 ):
+    if isinstance(interested_outputs, str):
+        interested_outputs = [interested_outputs]
 
     quant_graph = QuantableGraph(graph)
 
@@ -186,9 +187,9 @@ def variable_analyse(
         from matplotlib import pyplot as plt
 
         tensor = torch.cat(data_collector[name]).flatten()
-        tensor = convert_any_to_numpy(tensor)
+        tensor = convert_any_to_numpy(tensor, False)
 
-        plt.figure(figsize=[12, 8])
+        plt.figure(figsize=(12, 8))
         plt.title(f"Histogram Result of Variable {name}:")
         plt.hist(tensor, bins=64)
         plt.show()

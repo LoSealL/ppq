@@ -16,9 +16,8 @@ from mppq.quant import (
 )
 from mppq.quantization.algorithm.training import TrainableBlock
 from mppq.quantization.measure import torch_mean_square_error
-
-from .base import OPTIM_ALGORITHMS
-from .training import LSQDelegator, TrainingBasedPass
+from mppq.quantization.optim.base import OPTIM_ALGORITHMS
+from mppq.quantization.optim.training import LSQDelegator, TrainingBasedPass
 
 
 class TimeDecay:
@@ -72,11 +71,11 @@ class AdaroundRegTerm(torch.nn.Module):
     def rectified_sigmoid(self, r: torch.Tensor) -> torch.Tensor:
         return ((self.zeta - self.gamma) * torch.sigmoid(r) + self.gamma).clamp(0, 1)
 
-    def forward(self, r: torch.Tensor, iter: int) -> torch.Tensor:
-        if iter < self.max_iter * self.warm_ratio:
-            round_loss = 0
+    def forward(self, r: torch.Tensor, iters: int) -> torch.Tensor:
+        if iters < self.max_iter * self.warm_ratio:
+            round_loss = torch.tensor(0, device=r.device)
         else:
-            self.beta = self.temp_anneal(iter)
+            self.beta = self.temp_anneal(iters)
             round_loss = (
                 self.alpha
                 * (
@@ -181,7 +180,7 @@ class AdaRoundDelegator(TorchQuantizeDelegator):
         return tensor
 
     def regularization_loss(self, step: int) -> torch.Tensor:
-        return self.reg.forward(r=self.rounding, iter=step)
+        return self.reg.forward(r=self.rounding, iters=step)
 
 
 @OPTIM_ALGORITHMS.register()
@@ -396,11 +395,13 @@ class AdaroundPass(TrainingBasedPass):
     def optimize(
         self,
         graph: BaseGraph,
-        dataloader: Iterable,
-        executor: BaseGraphExecutor,
+        dataloader: Optional[Iterable] = None,
+        executor: Optional[BaseGraphExecutor] = None,
         collate_fn: Optional[Callable] = None,
         **kwargs,
     ) -> None:
+        assert isinstance(executor, TorchExecutor)
+        assert dataloader is not None
         blocks = self.split_graph_into_blocks(
             graph=graph,
             executing_order=executor._executing_order,

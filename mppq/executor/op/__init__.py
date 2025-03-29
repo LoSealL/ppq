@@ -1,1 +1,1 @@
-from . import default  # noqa: E401
+from mppq.executor.op import default  # noqa: E401

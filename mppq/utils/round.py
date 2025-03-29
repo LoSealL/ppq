@@ -8,6 +8,7 @@ from torch.autograd import Function
 from mppq.quant import RoundingPolicy
 
 
+# pylint: disable=abstract-method, arguments-differ
 class PPQTensorRoundImpl(Function):
     @staticmethod
     def forward(
@@ -15,22 +16,7 @@ class PPQTensorRoundImpl(Function):
         value: torch.Tensor,
         policy: RoundingPolicy = RoundingPolicy.ROUND_HALF_EVEN,
     ) -> torch.Tensor:
-        """
-            reference: https://en.wikipedia.org/wiki/Rounding
-
-        Args:
-            value (torch.Tensor): [description]
-            policy (RoundingPolicy, optional): [description]. Defaults to RoundingPolicy.ROUND_HALF_EVEN.
-
-        Raises:
-            ValueError: [description]
-
-        Returns:
-            torch.Tensor: [description]
-        """
-        assert isinstance(
-            value, torch.Tensor
-        ), "tensor round only takes effect on torch tensor."
+        """reference: https://en.wikipedia.org/wiki/Rounding"""
         if policy == RoundingPolicy.ROUND_HALF_EVEN:
             # default rounding policy of torch is ROUND_TO_NEAR_EVEN
             # try this: print(torch.Tensor([1.5, 2.5, 3.5, 4.5]).round())
@@ -46,43 +32,29 @@ class PPQTensorRoundImpl(Function):
             return torch.ceil(value - 0.5)
         elif policy == RoundingPolicy.ROUND_HALF_UP:
             return torch.floor(value + 0.5)
-        elif policy == RoundingPolicy.ROUND_TO_NEAR_INT:
-            raise NotImplementedError(
-                f"Torch Tensor can not use this rounding policy({policy}) try ROUND_HALF_EVEN instead."
-            )
         else:
-            raise ValueError("Unexpected rounding policy found.")
+            raise ValueError(f"Unexpected rounding {policy}.")
 
     @staticmethod
-    def backward(ctx, dy: torch.Tensor):
-        return dy, None
+    def backward(ctx, *grads_output: torch.Tensor):
+        return grads_output[0], None
 
 
 def ppq_numerical_round(
     value: float, policy: RoundingPolicy = RoundingPolicy.ROUND_HALF_EVEN
 ) -> int:
-    """
-        reference: https://en.wikipedia.org/wiki/Rounding
+    """reference: https://en.wikipedia.org/wiki/Rounding
 
-        decimal definition:
-            - decimal.ROUND_CEILING (towards Infinity)
-            - decimal.ROUND_DOWN (towards zero)
-            - decimal.ROUND_FLOOR (towards -Infinity)
-            - decimal.ROUND_HALF_DOWN (to nearest with ties going towards zero)
-            - decimal.ROUND_HALF_EVEN (to nearest with ties going to nearest even integer)
-            - decimal.ROUND_HALF_UP (to nearest with ties going away from zero)
-            - decimal.ROUND_UP (away from zero)
-            - decimal.ROUND_05UP (away from zero if last digit after rounding towards zero would have been 0 or 5; otherwise towards zero)
-
-    Args:
-        value (float): [description]
-        policy (RoundingPolicy, optional): [description]. Defaults to RoundingPolicy.ROUND_HALF_EVEN.
-
-    Raises:
-        ValueError: [description]
-
-    Returns:
-        int: [description]
+    decimal definition:
+        - decimal.ROUND_CEILING (towards Infinity)
+        - decimal.ROUND_DOWN (towards zero)
+        - decimal.ROUND_FLOOR (towards -Infinity)
+        - decimal.ROUND_HALF_DOWN (to nearest with ties going towards zero)
+        - decimal.ROUND_HALF_EVEN (to nearest with ties going to nearest even integer)
+        - decimal.ROUND_HALF_UP (to nearest with ties going away from zero)
+        - decimal.ROUND_UP (away from zero)
+        - decimal.ROUND_05UP (away from zero if last digit after rounding towards zero
+          would have been 0 or 5; otherwise towards zero)
     """
     assert isinstance(
         value, float
@@ -121,38 +93,21 @@ def ppq_numerical_round(
 def ppq_tensor_round(
     value: torch.Tensor, policy: RoundingPolicy = RoundingPolicy.ROUND_HALF_EVEN
 ) -> torch.Tensor:
-    """
-        reference: https://en.wikipedia.org/wiki/Rounding
-
-    Args:
-        value (torch.Tensor): [description]
-        policy (RoundingPolicy, optional): [description]. Defaults to RoundingPolicy.ROUND_HALF_EVEN.
-
-    Raises:
-        ValueError: [description]
-
-    Returns:
-        torch.Tensor: [description]
-    """
-    return PPQTensorRoundImpl.apply(value, policy)
+    """reference: https://en.wikipedia.org/wiki/Rounding"""
+    round_value = PPQTensorRoundImpl.apply(value, policy)
+    assert isinstance(round_value, torch.Tensor)
+    return round_value
 
 
 def ppq_round_to_power_of_2(
     value: Union[float, int], policy: RoundingPolicy = RoundingPolicy.ROUND_UP
 ) -> float:
-    """
-    Round a given value to Integer, under Power-of-2 restrction.
+    r"""Round a given value to Integer, under Power-of-2 restrction.
 
     ### Formula:
-    ppq_round_to_power_of_2(x) = sign * float(pow(2, round(log2(sign * value), policy=policy)))
+
+    ppq_round_to_power_of_2(x) = sign(x) * float(pow(2, round(log2(sign(x) * x))))
         where sign is +1 or -1
-
-    Args:
-        value (Union[float, int]): _description_
-        policy (RoundingPolicy, optional): _description_. Defaults to RoundingPolicy.ROUND_UP.
-
-    Returns:
-        float: _description_
     """
     if value == 0:
         return 0

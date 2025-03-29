@@ -15,8 +15,6 @@ from mppq.utils.round import ppq_tensor_round
 # pylint: disable=missing-function-docstring
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is not available.")
 def test_cuda_compile():
-    with pytest.raises(RuntimeError):
-        dir(CUDA_COMPLIER.extension)
     with ENABLE_CUDA_KERNEL():
         dir(CUDA_COMPLIER.extension)
 

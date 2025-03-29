@@ -1,11 +1,10 @@
-from typing import Collection, Dict, Optional, Set
+from typing import Collection, Dict, Set
 
+from mppq.dispatcher.base import DISPATCHER_TABLE, GraphDispatcher
 from mppq.ir.base.graph import BaseGraph
 from mppq.ir.base.opdef import Operation, OpSocket
 from mppq.ir.search import SearchableGraph
 from mppq.quant import TargetPrecision
-
-from .base import DISPATCHER_TABLE, GraphDispatcher
 
 
 @DISPATCHER_TABLE.register("perseus")
@@ -197,7 +196,7 @@ class Perseus(GraphDispatcher):
         return fanin
 
     def dispatch(
-        self, quant_types: Optional[Collection[str]] = None, **kwargs
+        self, quant_types: Collection[str], quant_precision: TargetPrecision, **kwargs
     ) -> Dict[str, TargetPrecision]:
         r"""对当前图执行默认算子调度逻辑
 
@@ -228,7 +227,7 @@ class Perseus(GraphDispatcher):
             if op in computing_ops and op in soi_ops:
                 dispatching_table[op.name] = TargetPrecision.FP32
             elif op in computing_ops:
-                dispatching_table[op.name] = TargetPrecision.UNSPECIFIED
+                dispatching_table[op.name] = quant_precision
             elif op in soi_ops:
                 dispatching_table[op.name] = TargetPrecision.SOI
 

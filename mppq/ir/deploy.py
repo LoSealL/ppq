@@ -3,9 +3,7 @@ from typing import Any, List, Optional
 import torch
 
 from mppq.data import convert_any_to_tensor
-from mppq.quant import OperationQuantizationConfig, TargetPrecision
-
-from .base.command import (
+from mppq.ir.base.command import (
     GraphCommand,
     GraphCommandType,
     GraphDeployCommand,
@@ -13,10 +11,11 @@ from .base.command import (
     ReplaceOperationCommand,
     ReplaceVariableCommand,
 )
-from .base.graph import BaseGraph
-from .base.opdef import Operation, Variable
-from .base.processor import GraphCommandProcessor
-from .base.quantize import QuantableOperation, QuantableVariable
+from mppq.ir.base.graph import BaseGraph
+from mppq.ir.base.opdef import Operation, Variable
+from mppq.ir.base.processor import GraphCommandProcessor
+from mppq.ir.base.quantize import QuantableOperation, QuantableVariable
+from mppq.quant import OperationQuantizationConfig, TargetPrecision
 
 
 class RunnableGraph(GraphCommandProcessor):
@@ -89,18 +88,18 @@ class RunnableGraph(GraphCommandProcessor):
                 continue
 
             # check all destination operations platform are same.
-            platforms = [op.precision for op in variable.dest_ops]
+            precisions = [op.precision for op in variable.dest_ops]
             if (
-                all([_ == platforms[0] for _ in platforms])
-                and platforms[0] == TargetPrecision.SOI
+                all([_ == precisions[0] for _ in precisions])
+                and precisions[0] == TargetPrecision.SOI
             ):
-                platform = TargetPrecision.SOI
+                precision = TargetPrecision.SOI
             else:
-                platform = TargetPrecision.UNSPECIFIED
+                precision = TargetPrecision.UNSPECIFIED
 
             # if all downstream operations are shape related operations,
             # send value to cpu
-            if platform == TargetPrecision.SOI:
+            if precision == TargetPrecision.SOI:
                 variable.value = convert_any_to_tensor(variable.value).to("cpu")
             else:
                 variable.value = convert_any_to_tensor(variable.value).to(device=device)

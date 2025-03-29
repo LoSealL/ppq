@@ -1,21 +1,20 @@
 import torch
 
+from mppq.ir.base.quantize import BaseQuantFunction
 from mppq.quant import (
     QuantizationProperty,
     QuantizationStates,
     TensorQuantizationConfig,
 )
-
-from .base import BaseQuantFunction
-from .floating import PPQFloatingQuantFunction
-from .linear import (
-    PPQDyamicLinearQuantFunction,
-    PPQLinearQuant_toInt,
-    PPQLinearQuantFunction,
+from mppq.utils.qfunction.floating import floating_quant
+from mppq.utils.qfunction.linear import (
+    dynamic_linear_quant,
+    linear_fake_quant,
+    linear_quant_toint,
 )
 
 
-def PPQuantFunction(
+def ppq_fake_quant(
     tensor: torch.Tensor, config: TensorQuantizationConfig
 ) -> torch.Tensor:
     """
@@ -47,21 +46,21 @@ def PPQuantFunction(
         return tensor
     if config.policy.has_property(QuantizationProperty.LINEAR):
         if not config.policy.has_property(QuantizationProperty.DYNAMIC):
-            return PPQLinearQuantFunction(tensor, config)
+            return linear_fake_quant(tensor, config)
         else:
-            return PPQDyamicLinearQuantFunction(tensor, config)
+            return dynamic_linear_quant(tensor, config)
 
     if config.policy.has_property(QuantizationProperty.FLOATING):
         if not config.policy.has_property(QuantizationProperty.DYNAMIC):
-            return PPQFloatingQuantFunction(tensor, config)
+            return floating_quant(tensor, config)
 
     raise ValueError(
-        "Unexpected Quantization Property Found in PPQuantFunction. "
+        "Unexpected Quantization Property Found in ppq_fake_quant. "
         "Do not know how to quantize your config yet."
     )
 
 
-def PPQuantFunction_toInt(
+def ppq_quant_toint(
     tensor: torch.Tensor, config: TensorQuantizationConfig
 ) -> torch.Tensor:
     """
@@ -73,16 +72,16 @@ def PPQuantFunction_toInt(
     """
     if config.policy.has_property(QuantizationProperty.LINEAR):
         if not config.policy.has_property(QuantizationProperty.DYNAMIC):
-            return PPQLinearQuant_toInt(tensor, config)
+            return linear_quant_toint(tensor, config)
 
     raise ValueError(
-        "Unexpected Quantization Property Found in PPQuantFunction_toInt. "
+        "Unexpected Quantization Property Found in ppq_quant_toint. "
         "Do not know how to quantize your config yet."
     )
 
 
 __all__ = [
-    "PPQuantFunction",
-    "PPQuantFunction_toInt",
+    "ppq_fake_quant",
+    "ppq_quant_toint",
     "BaseQuantFunction",
 ]

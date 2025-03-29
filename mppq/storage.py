@@ -10,9 +10,8 @@ import numpy as np
 import torch
 
 import mppq
-
-from .data import DataType, convert_any_to_numpy, convert_any_to_tensor
-from .logger import warning
+from mppq.data import DataType, convert_any_to_numpy, convert_any_to_tensor
+from mppq.logger import warning
 
 
 class Serializable:

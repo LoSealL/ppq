@@ -1,5 +1,5 @@
-from .base import QUANTIZER, BaseQuantizer
-from .default import DefaultQuantizer
+from mppq.quantizer.base import QUANTIZER, BaseQuantizer
+from mppq.quantizer.default import DefaultQuantizer
 
 __all__ = [
     "QUANTIZER",

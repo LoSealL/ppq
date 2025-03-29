@@ -85,7 +85,7 @@ class Variable(Serializable):
     @property
     def src_idx(self) -> Optional[int]:
         if self._source_op is not None:
-            return self.source_op.outputs.index(self)
+            return self._source_op.outputs.index(self)
         return None
 
     @property

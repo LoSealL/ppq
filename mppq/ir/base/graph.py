@@ -9,12 +9,11 @@ import torch
 
 from mppq.data import convert_any_to_python_primary_type as _convert
 from mppq.defs import SingletonMeta
+from mppq.ir.base.opdef import Operation, Variable
+from mppq.ir.base.quantize import QuantableOperation
 from mppq.logger import error, warning
 from mppq.quant import QuantizationStates, TargetPrecision
 from mppq.storage import Serializable
-
-from .opdef import Operation, Variable
-from .quantize import QuantableOperation
 
 
 class BaseGraph(Serializable):
@@ -709,11 +708,8 @@ class GraphBuilder(metaclass=SingletonMeta):
 class GraphExporter(metaclass=SingletonMeta):
     r"""A base singleton for exporter."""
 
-    def export_quantization_config(
-        self,
-        config_path: str | os.PathLike,
-        graph: BaseGraph,
-    ):
+    @staticmethod
+    def export_quantization_config(graph: BaseGraph):
         """Export Tensor Quantization Config (TQC) to file (JSON)."""
 
         render_buffer = {"configs": {}, "dispatchings": {}, "values": {}}
@@ -739,6 +735,13 @@ class GraphExporter(metaclass=SingletonMeta):
                             }
             render_buffer["configs"][operation.name] = op_dict
             render_buffer["dispatchings"][operation.name] = operation.precision.name
+        return render_buffer
+
+    def dump_quantization_config(
+        self, config_path: str | os.PathLike, graph: BaseGraph
+    ):
+        """Export Tensor Quantization Config (TQC) to file (JSON)."""
+        render_buffer = self.export_quantization_config(graph)
         with open(file=config_path, mode="w", encoding="utf-8") as file:
             json.dump(render_buffer, file, indent=4)
 

@@ -5,11 +5,7 @@ Refer to ppq.scheduler.perseus for updated implementation.
 
 from typing import Collection, Dict
 
-from mppq.ir.base.graph import BaseGraph
-from mppq.ir.search import SearchableGraph
-from mppq.quant import TargetPrecision
-
-from .base import (
+from mppq.dispatcher.base import (
     DISPATCHER_TABLE,
     GraphDispatcher,
     reverse_tracing_pattern,
@@ -17,6 +13,9 @@ from .base import (
     soi_receivers,
     value_tracing_pattern,
 )
+from mppq.ir.base.graph import BaseGraph
+from mppq.ir.search import SearchableGraph
+from mppq.quant import TargetPrecision
 
 
 @DISPATCHER_TABLE.register("aggressive")
@@ -53,7 +52,7 @@ class AggressiveDispatcher(GraphDispatcher):
     def dispatch(
         self,
         quant_types: Collection[str],
-        quant_platform: TargetPrecision = TargetPrecision.UNSPECIFIED,
+        quant_precision: TargetPrecision,
         fp32_platform: TargetPrecision = TargetPrecision.FP32,
         soi_platform: TargetPrecision = TargetPrecision.SOI,
         **kwargs,
@@ -62,12 +61,12 @@ class AggressiveDispatcher(GraphDispatcher):
         be sent to a specific platform for further execution and quantization.
 
         There are 3 default platform during dispatching:
-            quant_platform - all quantable parts of graph will be dispatched to this
-                             platform
+            quant_precision - all quantable parts of graph will be dispatched to this
+                              platform
             SOI_platform   - Aka. Shape or Index related operations will be dispatched
                              to this platform.
             fp32_platform  - there are some operations receiving results from both
-                             quant_platform and SOI_platform, they will be dispatched
+                             quant_precision and SOI_platform, they will be dispatched
                              they will be dispatched to fp32_platform.
 
         ATTENTION:
@@ -84,7 +83,7 @@ class AggressiveDispatcher(GraphDispatcher):
             graph (BaseGraph): graph object which going to be dispatched by this
                 dispatcher.
             quant_types(Set[str]): all quantable types for given platforms.
-            quant_platform (TargetPlatform):
+            quant_precision (TargetPlatform):
                 platform object where quantable parts will goes to.
             SOI_platform (TargetPlatform):
                 platform object where SOI parts will goes to.
@@ -147,7 +146,7 @@ class AggressiveDispatcher(GraphDispatcher):
             if operation in soi_operations:
                 dispatching_table[operation.name] = soi_platform
             elif operation in quant_operations:
-                dispatching_table[operation.name] = quant_platform
+                dispatching_table[operation.name] = quant_precision
             else:
                 dispatching_table[operation.name] = fp32_platform
 
@@ -158,7 +157,7 @@ class AggressiveDispatcher(GraphDispatcher):
                         0
                     ].source_op.precision
                 else:
-                    dispatching_table[operation.name] = quant_platform
+                    dispatching_table[operation.name] = quant_precision
 
             # move activations to the platform same as their input.
             if operation.is_linear_activation:

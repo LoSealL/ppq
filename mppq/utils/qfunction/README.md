@@ -67,14 +67,14 @@ Gradient is necessary in PTQ, it enables us to finetuning your network for a bet
 Now is time to play with PPQ Qlinear functions, let's start with import them from PPQ libraries:
 
     from mppq import TensorQuantizationConfig
-    from mppq.quantization.qfunction.linear import PPQLinearQuant_toInt, PPQLinearQuantFunction
+    from mppq.utils.qfunction.linear import linear_quant_toint, linear_fake_quant
 
-PPQLinearQuantFunction and PPQLinearQuant_toInt are quant(dequant) functions used in PPQ executor: PPQLinearQuant_toInt will quantize a fp32 tensor to int8, PPQLinearQuantFunction will quantize and dequantize a fp32 tensor. TensorQuantizationConfig is the data structure to describe quantization parameter(scale, offset, and etc.). In other words, TensorQuantizationConfig tells how to quantize your tensor.
+linear_fake_quant and linear_quant_toint are quant(dequant) functions used in PPQ executor: linear_quant_toint will quantize a fp32 tensor to int8, linear_fake_quant will quantize and dequantize a fp32 tensor. TensorQuantizationConfig is the data structure to describe quantization parameter(scale, offset, and etc.). In other words, TensorQuantizationConfig tells how to quantize your tensor.
 
     import torch
     from mppq import TensorQuantizationConfig
     from mppq.core import *
-    from mppq.quantization.qfunction.linear import PPQLinearQuant_toInt, PPQLinearQuantFunction
+    from mppq.utils.qfunction.linear import linear_quant_toint, linear_fake_quant
 
     v_fp32 = torch.tensor([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
     tqc = TensorQuantizationConfig(
@@ -90,8 +90,8 @@ PPQLinearQuantFunction and PPQLinearQuant_toInt are quant(dequant) functions use
         offset = torch.tensor([0.0]),
         observer_algorithm = None,
         state = QuantizationStates.ACTIVATED)
-    v_int8   = PPQLinearQuant_toInt(tensor=v_fp32, config=tqc)
-    dqv_fp32 = PPQLinearQuantFunction(tensor=v_fp32, config=tqc)
+    v_int8   = linear_quant_toint(tensor=v_fp32, config=tqc)
+    dqv_fp32 = linear_fake_quant(tensor=v_fp32, config=tqc)
     print(f'PPQ Quantized v_int8: {v_int8}') # tensor([0, 1, 2, 2, 2, 3, 4, 4, 4, 5], dtype=torch.int32)
     print(f'PPQ Dequantized dqv_fp32: {dqv_fp32}') # tensor([ 0.,  2.,  4.,  4.,  4.,  6.,  8.,  8.,  8., 10.])
 

@@ -1,6 +1,7 @@
 from abc import ABCMeta, abstractmethod
-from typing import Iterator, List, Optional, Self, Sequence, Type
+from typing import Iterable, List, Optional, Self, Sequence, Type
 
+from mppq.executor.base import BaseGraphExecutor
 from mppq.ir.base.graph import BaseGraph
 from mppq.logger import error, info
 from mppq.register import Registry
@@ -22,7 +23,13 @@ class QuantizationOptimizationPass(metaclass=ABCMeta):
         self.name = name or self.__class__.__name__
 
     @abstractmethod
-    def optimize(self, graph: BaseGraph, **kwargs) -> Optional[BaseGraph]:
+    def optimize(
+        self,
+        graph: BaseGraph,
+        dataloader: Optional[Iterable] = None,
+        executor: Optional[BaseGraphExecutor] = None,
+        **kwargs,
+    ) -> Optional[BaseGraph]:
         """Apply an optimization algorithm to a given graph."""
         raise NotImplementedError
 
@@ -48,21 +55,28 @@ class QuantizationOptimizationPipeline(QuantizationOptimizationPass):
             self.append(optim)
 
     def __len__(self) -> int:
-        return len([_ for _ in self])
+        return len([_ for _ in self.__iter__()])
 
     def __contains__(self, obj: QuantizationOptimizationPass) -> bool:
         return obj in self._pipeline
 
-    def __iter__(self) -> Iterator[QuantizationOptimizationPass]:
+    def __iter__(self) -> Iterable[QuantizationOptimizationPass]:
         for i in self._pipeline:
             if isinstance(i, QuantizationOptimizationPipeline):
                 # support nested pipeline
-                yield from i
+                yield from i.__iter__()
             else:
                 yield i
 
-    def optimize(self, graph: BaseGraph, verbose: bool = True, **kwargs):
-        for i, optim in enumerate(self):
+    def optimize(
+        self,
+        graph: BaseGraph,
+        dataloader: Optional[Iterable] = None,
+        executor: Optional[BaseGraphExecutor] = None,
+        verbose: bool = True,
+        **kwargs,
+    ):
+        for i, optim in enumerate(self.__iter__()):
             assert isinstance(optim, QuantizationOptimizationPass)
             if verbose:
                 info(f"[{i:02d}/{len(self):02d} {optim.name} Running ...")
@@ -73,7 +87,13 @@ class QuantizationOptimizationPipeline(QuantizationOptimizationPass):
                     f"calling optim pass, however {type(graph)} was given."
                 )
             try:
-                ret = optim.optimize(graph=graph, **kwargs)
+                ret = optim.optimize(
+                    graph=graph,
+                    dataloader=dataloader,
+                    executor=executor,
+                    verbose=verbose,
+                    **kwargs,
+                )
             except Exception:
                 error(f"An error occurred while running {optim.name}.")
                 raise

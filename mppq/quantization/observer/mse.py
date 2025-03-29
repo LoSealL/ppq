@@ -12,10 +12,9 @@ from mppq.defs import ppq_quant_param_computing_function
 from mppq.ffi import CUDA, ENABLE_CUDA_KERNEL
 from mppq.ir.base.opdef import Variable
 from mppq.quant import QuantizationProperty, TensorQuantizationConfig
-from mppq.quantization.observer.range import minmax_to_scale_offset
-
-from .base import OBSERVER_TABLE
-from .hist import TorchHistObserver
+from mppq.quantization.observer.base import OBSERVER_TABLE
+from mppq.quantization.observer.hist import TorchHistObserver
+from mppq.utils.qfunction.linear import minmax_to_scale_offset
 
 
 @OBSERVER_TABLE.register("mse")

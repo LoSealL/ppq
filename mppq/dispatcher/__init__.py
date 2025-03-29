@@ -1,9 +1,9 @@
-from .aggressive import AggressiveDispatcher
-from .allin import AllinDispatcher
-from .base import DISPATCHER_TABLE
-from .conservative import ConservativeDispatcher
-from .perseus import Perseus
-from .pointwise import PointDispatcher
+from mppq.dispatcher.aggressive import AggressiveDispatcher
+from mppq.dispatcher.allin import AllinDispatcher
+from mppq.dispatcher.base import DISPATCHER_TABLE
+from mppq.dispatcher.conservative import ConservativeDispatcher
+from mppq.dispatcher.perseus import Perseus
+from mppq.dispatcher.pointwise import PointDispatcher
 
 __all__ = [
     "AllinDispatcher",

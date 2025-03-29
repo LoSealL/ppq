@@ -1,8 +1,8 @@
 from abc import ABCMeta, abstractmethod
 from typing import Any, List, Optional, TypeVar
 
-from .command import GraphCommand, GraphCommandType
-from .graph import BaseGraph
+from mppq.ir.base.command import GraphCommand, GraphCommandType
+from mppq.ir.base.graph import BaseGraph
 
 T = TypeVar("T", BaseGraph, "GraphCommandProcessor")
 

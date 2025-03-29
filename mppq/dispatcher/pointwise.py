@@ -5,10 +5,9 @@ Refer to ppq.scheduler.perseus for updated implementation.
 
 from typing import Collection, Dict
 
+from mppq.dispatcher.base import DISPATCHER_TABLE
+from mppq.dispatcher.conservative import ConservativeDispatcher
 from mppq.quant import TargetPrecision
-
-from .base import DISPATCHER_TABLE
-from .conservative import ConservativeDispatcher
 
 
 @DISPATCHER_TABLE.register("pointwise")
@@ -45,7 +44,7 @@ class PointDispatcher(ConservativeDispatcher):
     def dispatch(
         self,
         quant_types: Collection[str],
-        quant_platform: TargetPrecision = TargetPrecision.UNSPECIFIED,
+        quant_precision: TargetPrecision,
         fp32_platform: TargetPrecision = TargetPrecision.FP32,
         soi_platform: TargetPrecision = TargetPrecision.SOI,
         **kwargs,
@@ -54,12 +53,12 @@ class PointDispatcher(ConservativeDispatcher):
         be sent to a specific platform for further execution and quantization.
 
         There are 3 default platform during dispatching:
-            quant_platform - all quantable parts of graph will be dispatched to this
+            quant_precision - all quantable parts of graph will be dispatched to this
                              platform
             SOI_platform   - Aka. Shape or Index related operations will be dispatched
                              to this platform.
             fp32_platform  - there are some operations receiving results from both
-                             quant_platform and SOI_platform, they will be dispatched
+                             quant_precision and SOI_platform, they will be dispatched
                              they will be dispatched to fp32_platform.
 
         ATTENTION:
@@ -76,7 +75,7 @@ class PointDispatcher(ConservativeDispatcher):
             graph (BaseGraph): graph object which going to be dispatched by this
                 dispatcher.
             quant_types(Set[str]): all quantable types for given platforms.
-            quant_platform (TargetPlatform): =
+            quant_precision (TargetPlatform): =
                 platform object where quantable parts will goes to.
             SOI_platform (TargetPlatform):
                 platform object where SOI parts will goes to.
@@ -87,7 +86,7 @@ class PointDispatcher(ConservativeDispatcher):
 
         dispatch_table = super().dispatch(
             quant_types=quant_types,
-            quant_platform=quant_platform,
+            quant_precision=quant_precision,
             fp32_platform=fp32_platform,
             soi_platform=soi_platform,
             kwargs=kwargs,
@@ -98,9 +97,9 @@ class PointDispatcher(ConservativeDispatcher):
             if op in skip_ops:
                 continue
             if op.type in quant_types and op.is_computing_op:
-                dispatch_table[op.name] = quant_platform
+                dispatch_table[op.name] = quant_precision
             else:
-                if dispatch_table[op.name] == quant_platform:
+                if dispatch_table[op.name] == quant_precision:
                     dispatch_table[op.name] = fp32_platform
 
         return dispatch_table

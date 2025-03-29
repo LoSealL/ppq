@@ -39,9 +39,7 @@ class EqualizationHelper:
         act_multiplier: float = 0.5,
     ) -> torch.Tensor:
         if op.type not in {"Gemm", "MatMul", "Conv", "ConvTranspose"}:
-            raise TypeError(
-                f"Unsupported Op type {op.name}({op.type}) for Equalization Optimization."
-            )
+            raise TypeError(f"Unsupported Op type {op.name}({op.type}).")
         if not op.inputs[1].is_parameter:
             raise ValueError(f"Parameter of Op {op.name} is non-static.")
         buffer = []
@@ -49,8 +47,9 @@ class EqualizationHelper:
         # ----------------------------------
         # step - 1, extract weight from op:
         # ----------------------------------
+        w = op.inputs[1].value
         if including_weight:
-            w = op.inputs[1].value * weight_multiplier
+            w = w * weight_multiplier
             if op.type == "ConvTranspose":
                 num_of_groups = op.attributes.get("group", 1)
                 if w.ndim == 3:
@@ -74,18 +73,16 @@ class EqualizationHelper:
                 else:
                     raise ValueError(f"Unexpected dimension of weight of {op.name}.")
                 buffer.append(w)
-
-        if op.type in {"MatMul", "Gemm"}:
-            assert (
-                w.ndim == 2
-            ), f"Unexpected Error, Parameter of MatMul {op.name} should be 2-d."
-            if op.attributes.get("transB", 0) == 0:
-                w = torch.transpose(w, 1, 0)
-            buffer.append(w)
-
-        if op.type == "Conv":
-            w = torch.reshape(w, (w.shape[0], -1))
-            buffer.append(w)
+            elif op.type in {"MatMul", "Gemm"}:
+                assert (
+                    w.ndim == 2
+                ), f"Unexpected Error, Parameter of MatMul {op.name} should be 2-d."
+                if op.attributes.get("transB", 0) == 0:
+                    w = torch.transpose(w, 1, 0)
+                buffer.append(w)
+            elif op.type == "Conv":
+                w = torch.reshape(w, (w.shape[0], -1))
+                buffer.append(w)
 
         # ----------------------------------
         # step - 2, extract bias from op:
@@ -175,6 +172,7 @@ class EqualizationHelper:
         has_bias = op.num_of_input == 3
         if has_bias and not op.inputs[-1].is_parameter:
             raise ValueError(f"Bias of Op {op.name} is non-static.")
+        bias = None
         if has_bias:
             bias = op.inputs[-1].value
 
@@ -187,12 +185,12 @@ class EqualizationHelper:
                 scale_factor, [num_of_groups, 1, -1] + [1] * (w.ndim - 3)
             )
             w = torch.reshape(w, (w.shape[0] * w.shape[1],) + w.shape[2:])
-            if has_bias:
+            if bias is not None:
                 bias *= scale_factor
 
         elif op.type == "Conv":
             w *= torch.reshape(scale_factor, [-1] + ([1] * (w.ndim - 1)))
-            if has_bias:
+            if bias is not None:
                 bias *= scale_factor
 
         elif op.type in {"Gemm", "MatMul"}:
@@ -201,21 +199,19 @@ class EqualizationHelper:
             w *= torch.reshape(scale_factor, (-1, 1))
             if op.attributes.get("transB", 0) == 0:
                 w = torch.transpose(w, 1, 0)
-            if has_bias:
+            if bias is not None:
                 bias *= scale_factor
 
         # write back
         with torch.no_grad():
             op.inputs[1].value.copy_(w)
-            if has_bias:
+            if bias is not None:
                 op.inputs[-1].value.copy_(bias)
 
     @staticmethod
     def scale_to_downstream(op: Operation, scale_factor: torch.Tensor):
         if op.type not in {"Gemm", "MatMul", "Conv", "ConvTranspose"}:
-            raise TypeError(
-                f"Unsupported Op type {op.name}({op.type}) for Equalization Optimization."
-            )
+            raise TypeError(f"Unsupported Op type {op.name}({op.type}).")
         if not op.inputs[1].is_parameter:
             raise ValueError(f"Parameter of Op {op.name} is non-static.")
         w = op.inputs[1].value
@@ -246,13 +242,10 @@ class EqualizationHelper:
 
 
 class ChannelSplitHelper:
-
     @staticmethod
     def split_by_mask(
         mask: torch.Tensor, tensor: torch.Tensor, axis: int, scale_factor: float
     ):
-
-        mask = mask.tolist()
         if tensor.shape[axis] != len(mask):
             raise ValueError(
                 f"Unexpected tensor shape {tensor.shape}. Expect {len(mask)} at axis {axis}."
@@ -272,9 +265,7 @@ class ChannelSplitHelper:
     @staticmethod
     def channel_split_upstream(op: Operation, mask: torch.Tensor, scale_factor: float):
         if op.type not in {"Gemm", "MatMul", "Conv", "ConvTranspose"}:
-            raise TypeError(
-                f"Unsupported Op type {op.name}({op.type}) for Channel Split Optimization."
-            )
+            raise TypeError(f"Unsupported Op type {op.name}({op.type}).")
         if not op.inputs[1].is_parameter:
             raise ValueError(f"Parameter of Op {op.name} is non-static.")
 
@@ -282,6 +273,7 @@ class ChannelSplitHelper:
         has_bias = op.num_of_input == 3
         if has_bias and not op.inputs[-1].is_parameter:
             raise ValueError(f"Bias of Op {op.name} is non-static.")
+        bias = None
         if has_bias:
             bias = op.inputs[-1].value
 
@@ -298,21 +290,19 @@ class ChannelSplitHelper:
             w = torch.reshape(w, (num_of_groups, -1) + w.shape[1:])
             w = torch.transpose(w, 1, 2)  # swap output channel and input channel
             w = torch.reshape(w, (w.shape[1] * num_of_groups,) + w.shape[2:])
-            if has_bias:
+            if bias is not None:
                 bias = ChannelSplitHelper.split_by_mask(
                     mask=mask, tensor=bias, axis=0, scale_factor=scale_factor
                 )
-
         elif op.type == "Conv":
             w = ChannelSplitHelper.split_by_mask(
                 mask=mask, tensor=w, axis=0, scale_factor=scale_factor
             )
-            if has_bias:
+            if bias is not None:
                 bias = ChannelSplitHelper.split_by_mask(
                     mask=mask, tensor=bias, axis=0, scale_factor=scale_factor
                 )
             num_of_groups = op.attributes.get("group", 1)
-
         elif op.type in {"Gemm", "MatMul"}:
             if op.attributes.get("transB", 0) == 0:
                 w = torch.transpose(w, 1, 0)
@@ -321,24 +311,22 @@ class ChannelSplitHelper:
             )
             if op.attributes.get("transB", 0) == 0:
                 w = torch.transpose(w, 1, 0)
-            if has_bias:
+            if bias is not None:
                 bias = ChannelSplitHelper.split_by_mask(
                     mask=mask, tensor=bias, axis=0, scale_factor=scale_factor
                 )
-
         # write back
         with torch.no_grad():
             op.inputs[1].value = w
-            if has_bias:
+            if bias is not None:
                 op.inputs[-1].value = bias
 
+    @staticmethod
     def channel_split_downstream(
         op: Operation, mask: torch.Tensor, scale_factor: float
     ):
         if op.type not in {"Gemm", "MatMul", "Conv", "ConvTranspose"}:
-            raise TypeError(
-                f"Unsupported Op type {op.name}({op.type}) for Channel Split Optimization."
-            )
+            raise TypeError(f"Unsupported Op type {op.name}({op.type}).")
         if not op.inputs[1].is_parameter:
             raise ValueError(f"Parameter of Op {op.name} is non-static.")
         w = op.inputs[1].value
@@ -347,8 +335,7 @@ class ChannelSplitHelper:
             w = ChannelSplitHelper.split_by_mask(
                 mask=mask, tensor=w, axis=0, scale_factor=scale_factor
             )
-
-        if op.type == "Conv":
+        elif op.type == "Conv":
             num_of_groups = op.attributes.get("group", 1)
             w = torch.reshape(
                 w, (num_of_groups, w.shape[0] // num_of_groups) + w.shape[1:]
@@ -361,8 +348,7 @@ class ChannelSplitHelper:
             w = torch.reshape(w, (num_of_groups, -1) + w.shape[1:])
             w = torch.transpose(w, 1, 2)  # swap output channel and input channel
             w = torch.reshape(w, (w.shape[1] * num_of_groups,) + w.shape[2:])
-
-        if op.type in {"Gemm", "MatMul"}:
+        elif op.type in {"Gemm", "MatMul"}:
             if op.attributes.get("transB", 0) != 0:
                 w = torch.transpose(w, 1, 0)
             w = ChannelSplitHelper.split_by_mask(
@@ -377,38 +363,34 @@ class ChannelSplitHelper:
 
 
 class EqualizationPair:
+    r"""EqualizationPair - 一个数据结构，封装了 equalization 的核心数据抽象和执行逻辑
+    EqualizationPair - a class encapsulating execution logic of equalization
+
+    在 self.upstream_layers 包含了 equalization 操作中的所有上游层(op)
+    self.upstream_layers contain all upstream ops
+
+    在 self.downstream_layers 包含了 equalization 操作中的所有下游层(op)
+    self.downstream_layers contain all downstream ops
+
+    一个 EqualizationPair 结构记录了参与 equalization 变换的所有相关层与其局部图结构信息
+    从而支持在局部子图上的 equalization 操作
+    An EqualizationPair records all relevant ops participating in the
+    equalization transformation, thus supporting equalization on local subgraphs
+
+    Args:
+        upstream_layers (list): equalization 操作中的所有上游层(op)
+        downstream_layers (list): equalization 操作中的所有下游层(op)
+    """
+
     def __init__(
         self, upstream_layers: List[Operation], downstream_layers: List[Operation]
     ):
-        """
-            EqualizationPair - 一个数据结构，封装了 equalization 的核心数据抽象和执行逻辑
-                               a class encapsulating execution logic of equalization
-
-                在 self.upstream_layers 包含了 equalization 操作中的所有上游层(op)
-                self.upstream_layers contain all upstream ops
-
-                在 self.downstream_layers 包含了 equalization 操作中的所有下游层(op)
-                self.downstream_layers contain all downstream ops
-
-            一个 EqualizationPair 结构记录了参与 equalization 变换的所有相关层与其局部图结构信息
-            从而支持在局部子图上的 equalization 操作
-            An EqualizationPair records all relevant ops participating in the equalization
-            transformation, thus supporting equalization on local subgraphs
-        Args:
-            upstream_layers (list):
-                equalization 操作中的所有上游层(op)
-
-            downstream_layers (list):
-                equalization 操作中的所有下游层(op)
-        """
         self.upstream_layers = upstream_layers
         self.downstream_layers = downstream_layers
 
     def equalize(
         self,
         value_threshold: float,
-        including_weight: bool = True,
-        weight_multiplier: float = 1.0,
         including_act: bool = False,
         act_multiplier: float = 0.5,
         including_bias: bool = False,
@@ -546,22 +528,17 @@ class EqualizationPair:
         method: EqualizationMethod,
         axis: int = 1,
     ) -> torch.Tensor:
-        params = torch.cat(params, axis=axis)
+        param = torch.cat(params, dim=axis)
         if method is EqualizationMethod.ABSOLUTE_MAX:
-            return torch.max(torch.abs(params), axis=axis)[0]
-
+            return torch.max(torch.abs(param), dim=axis).values
         elif method is EqualizationMethod.ABSOLUTE_MEAN:
-            return torch.mean(torch.abs(params), axis=axis)
-
+            return torch.mean(torch.abs(param), dim=axis)
         elif method is EqualizationMethod.SQUARE_MAX:
-            return torch.max(torch.square(params), axis=axis)[0]
-
+            return torch.max(torch.square(param), dim=axis).values
         elif method is EqualizationMethod.SQUARE_MEAN:
-            return torch.mean(torch.square(params), axis=axis)
-
+            return torch.mean(torch.square(param), dim=axis)
         elif method is EqualizationMethod.DIRECT_MAX:
-            return torch.max(params, axis=axis)
-
+            return torch.max(param, dim=axis).values
         else:
             raise NotImplementedError(
                 "Equalization method %s is not support." % str(method)

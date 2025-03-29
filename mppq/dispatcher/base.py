@@ -35,7 +35,7 @@ class GraphDispatcher(metaclass=ABCMeta):
 
     @abstractmethod
     def dispatch(
-        self, quant_types: Collection[str], **kwargs
+        self, quant_types: Collection[str], quant_precision: TargetPrecision, **kwargs
     ) -> Dict[str, TargetPrecision]:
         """Graph Dispatcher splits a graph into parts, each part of graph will
         be sent to a specific platform for further execution and quantization.

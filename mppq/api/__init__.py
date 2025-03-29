@@ -11,15 +11,8 @@ Users are always encouraged to use functions and object within this package.
 """
 
 from mppq import __version__
-from mppq.dispatcher.base import GraphDispatcher
-from mppq.executor.torch import TorchExecutor
-from mppq.ffi import ENABLE_CUDA_KERNEL
-from mppq.frontend.base import GraphBuilder, GraphExporter
-from mppq.logger import set_level as set_log_level
-from mppq.quantizer.base import BaseQuantizer
-
-from .extension import register_operation, register_platform
-from .interface import (
+from mppq.api.extension import register_operation, register_platform
+from mppq.api.interface import (
     dispatch_graph,
     export_graph,
     export_onnx_graph,
@@ -27,7 +20,14 @@ from .interface import (
     load_graph,
     load_onnx_graph,
     load_quantizer,
+    quantize,
 )
+from mppq.dispatcher.base import GraphDispatcher
+from mppq.executor.torch import TorchExecutor
+from mppq.ffi import ENABLE_CUDA_KERNEL
+from mppq.frontend.base import GraphBuilder, GraphExporter
+from mppq.logger import set_level as set_log_level
+from mppq.quantizer.base import BaseQuantizer
 
 __all__ = [
     "__version__",
@@ -43,6 +43,7 @@ __all__ = [
     "load_graph",
     "load_onnx_graph",
     "load_quantizer",
+    "quantize",
     "GraphDispatcher",
     "GraphBuilder",
     "GraphExporter",

@@ -4,6 +4,7 @@ from typing import Optional, Sequence
 import torch
 
 from mppq.data import convert_any_to_tensor
+from mppq.frontend.onnx.onnx_exporter import OnnxExporter
 from mppq.ir.base.graph import BaseGraph
 from mppq.ir.base.opdef import Operation, Variable
 from mppq.ir.base.quantize import QuantableOperation
@@ -14,10 +15,8 @@ from mppq.quant import (
     QuantVisibility,
     TensorQuantizationConfig,
 )
-from mppq.quantization.qfunction import PPQuantFunction_toInt
+from mppq.utils.qfunction import ppq_quant_toint
 from mppq.utils.round import ppq_tensor_round
-
-from .onnx_exporter import OnnxExporter
 
 
 class QDQHelper:
@@ -467,7 +466,7 @@ class ONNXRUNTIMExporter(OnnxExporter):
                 if quantized_param and config.policy.has_property(
                     QuantizationProperty.LINEAR
                 ):
-                    var.value = PPQuantFunction_toInt(tensor=var.value, config=config)
+                    var.value = ppq_quant_toint(tensor=var.value, config=config)
 
             elif not var.is_parameter:
 

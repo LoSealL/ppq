@@ -172,44 +172,16 @@ class OnnxParser(GraphBuilder):
             results.append({"domain": opset.domain, "version": opset.version})
         return results
 
-    def build(
-        self, model_object: str | os.PathLike | onnx.ModelProto, **kw
-    ) -> BaseGraph:
-        """Build PPQ IR graph from an onnx file."""
-        if kw:
-            self._log.warning("Extra argument is not accepted! Ignoring:")
-            self._log.warning(f'\n  {"\n  ".join(kw.keys())}')
+    def _build_graph(
+        self,
+        model_pb: onnx.ModelProto,
+        opset: int,
+        graph: BaseGraph,
+        op_inputs_dict: Dict[str, List[str]],
+        op_outputs_dict: Dict[str, List[str]],
+    ):
         _rand_seed = 0  # used for name generation.
-        if isinstance(model_object, onnx.ModelProto):
-            model_pb = model_object
-        elif not Path(model_object).exists():
-            self._log.error(f"File {model_object} does not exist.")
-            raise FileNotFoundError
-        else:
-            model_pb = onnx.load_model(model_object, load_external_data=False)
-        if model_pb.ir_version < ONNX_VERSION:
-            # try to upgrade onnx version to the latest
-            with suppress(ovc.ConvertError):
-                model_pb = ovc.convert_version(model_pb, DEFAULT_OPSET_VERSION)
-
-        onnx.checker.check_model(model_pb)  # validate model
-        opsets = model_pb.opset_import
-        graph_pb = model_pb.graph
-        graph = BaseGraph(name=graph_pb.name)
-        graph._detail[GRAPH_OPSET_ATTRIB] = self._convert_opsets_to_str(opsets)
-        graph._detail["ir_version"] = model_pb.ir_version
-        with suppress(onnx.shape_inference.InferenceError):
-            graph_pb = onnx.shape_inference.infer_shapes(model_pb, True).graph
-
-        onnx_import_opset = DEFAULT_OPSET_VERSION
-        for opset in graph._detail[GRAPH_OPSET_ATTRIB]:
-            if opset["domain"] == DEFAULT_OPSET_DOMAIN or opset["domain"] == "":
-                onnx_import_opset = opset["version"]
-                break
-
-        # a temporary storage for operation's inputs and outputs
-        op_inputs_dict, op_outputs_dict = {}, {}
-        for node in graph_pb.node:
+        for node in model_pb.graph.node:
             op_name = node.name
             if len(op_name) == 0:
                 # some operation do not have a name, we just generate one.
@@ -226,11 +198,52 @@ class OnnxParser(GraphBuilder):
                     item.name: helper.get_attribute_value(item)
                     for item in node.attribute
                 },
-                opset=Opset(domain=DEFAULT_OPSET_DOMAIN, version=onnx_import_opset),
+                opset=Opset(domain=DEFAULT_OPSET_DOMAIN, version=opset),
             )
             op_inputs_dict[op_name] = [var_name for var_name in node.input]
             op_outputs_dict[op_name] = [var_name for var_name in node.output]
+
+    def build(
+        self, model_object: str | os.PathLike | onnx.ModelProto, **kw
+    ) -> BaseGraph:
+        """Build PPQ IR graph from an onnx file."""
+        if kw:
+            self._log.warning("Extra argument is not accepted! Ignoring:")
+            self._log.warning(f'\n  {"\n  ".join(kw.keys())}')
+        if isinstance(model_object, onnx.ModelProto):
+            model_pb = model_object
+        elif not Path(model_object).exists():
+            self._log.error(f"File {model_object} does not exist.")
+            raise FileNotFoundError
+        else:
+            model_pb = onnx.load_model(model_object, load_external_data=False)
+        if model_pb.ir_version < ONNX_VERSION:
+            # try to upgrade onnx version to the latest
+            with suppress(ovc.ConvertError):
+                model_pb = ovc.convert_version(model_pb, DEFAULT_OPSET_VERSION)
+
+        onnx.checker.check_model(model_pb)  # validate model
+        opsets = model_pb.opset_import
+        graph = BaseGraph(name=model_pb.graph.name)
+        graph._detail[GRAPH_OPSET_ATTRIB] = self._convert_opsets_to_str(opsets)
+        graph._detail["ir_version"] = model_pb.ir_version
+        with suppress(onnx.shape_inference.InferenceError):
+            model_pb = onnx.shape_inference.infer_shapes(model_pb, True)
+
+        onnx_import_opset = DEFAULT_OPSET_VERSION
+        for opset in graph._detail[GRAPH_OPSET_ATTRIB]:
+            if opset["domain"] == DEFAULT_OPSET_DOMAIN or opset["domain"] == "":
+                onnx_import_opset = opset["version"]
+                break
+
+        # a temporary storage for operation's inputs and outputs
+        op_inputs_dict: Dict[str, List[str]] = {}
+        op_outputs_dict: Dict[str, List[str]] = {}
+        self._build_graph(
+            model_pb, onnx_import_opset, graph, op_inputs_dict, op_outputs_dict
+        )
         # value type info
+        graph_pb = model_pb.graph
         value_info = {}
         for value in chain(graph_pb.input, graph_pb.output, graph_pb.value_info):
             if value.name in value_info:

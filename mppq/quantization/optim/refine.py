@@ -1,4 +1,4 @@
-from typing import Iterable, List, Set
+from typing import Iterable, List, Literal, Optional, Set
 
 import torch
 
@@ -19,43 +19,47 @@ from mppq.quant import (
     QuantizationStates,
     TensorQuantizationConfig,
 )
-from mppq.quantization.observer.range import minmax_to_scale_offset
-
-from .base import OPTIM_ALGORITHMS, QuantizationOptimizationPass
+from mppq.quantization.optim.base import OPTIM_ALGORITHMS, QuantizationOptimizationPass
+from mppq.utils.qfunction.linear import minmax_to_scale_offset
 
 
 @OPTIM_ALGORITHMS.register()
 class QuantizeSimplifyPass(QuantizationOptimizationPass):
-    """
-    ## PPQ Quantize Simplify Pass(通用量化精简过程)
+    r"""PPQ Quantize Simplify Pass(通用量化精简过程)
 
     PPQ use Tensor Quantization Configuration(A data structure defined in ppq.core) to
-    control quantization. Each quantable op will have a list of TQC as its quantization config,
-    which contains necessary quantization parameter(scale, offset), in order to quantize its input(s) and output(s).
+    control quantization. Each quantable op will have a list of TQC as its quantization
+    config, which contains necessary quantization parameter(scale, offset), in order to
+    quantize its input(s) and output(s).
 
-    While TQC is a powerful tool for describing quantization, it introduces some undiserible features:
+    While TQC is a powerful tool for describing quantization, it introduces some
+    undiserible features:
 
     For a subgraph like:
 
             Relu1 - Relu2
 
-    PPQ will create at least 4 TQC here, namely the input TQC of Relu1 and Relu2, and the output TQC of Relu1 and Relu2.
-    Problem here is the output TQC of Relu1 and the input TQC of Relu2 is actually duplicated, the output variable
-    should not be quantized twice.
+    PPQ will create at least 4 TQC here, namely the input TQC of Relu1 and Relu2, and
+    the output TQC of Relu1 and Relu2. Problem here is the output TQC of Relu1 and the
+    input TQC of Relu2 is actually duplicated, the output variable should not be
+    quantized twice.
 
-    This Simplify Pass will detect all the duplicated TQCs in your network, disable them and create a link with their
-    dominating TQCs. Disabled TQC will have and inactive state(QuantizationState.OVERRLAPED), so PPQ executor will
-    simply ignore them when executing.
+    This Simplify Pass will detect all the duplicated TQCs in your network, disable
+    them and create a link with their dominating TQCs. Disabled TQC will have and
+    inactive state(QuantizationState.OVERRLAPED), so PPQ executor will simply ignore
+    them when executing.
 
-    A duplicated TQC is an input TQC(A) whose binding variable has been quantized by another output TQC(B),
-    and the input TQC(A) should have the same bit-width as the output TQC(B)
+    A duplicated TQC is an input TQC(A) whose binding variable has been quantized by
+    another output TQC(B), and the input TQC(A) should have the same bit-width as the
+    output TQC(B)
 
     ### Parameters:
 
     * No Parameter
 
     ### Usage
-    This pass is included in PPQ Quantization Setting, you can calling this optimization by:
+    This pass is included in PPQ Quantization Setting, you can calling this
+    optimization by:
 
         setting = QuantizationSettingFactory.default_setting()
 
@@ -75,8 +79,8 @@ class QuantizeSimplifyPass(QuantizationOptimizationPass):
     def optimize(
         self,
         graph: BaseGraph,
-        dataloader: Iterable,
-        executor: BaseGraphExecutor,
+        dataloader: Optional[Iterable] = None,
+        executor: Optional[BaseGraphExecutor] = None,
         **kwargs,
     ) -> None:
         for _, variable in graph.variables.items():
@@ -96,7 +100,8 @@ class QuantizeSimplifyPass(QuantizationOptimizationPass):
 
             for downstream_op, dest_idx in zip(variable.dest_ops, variable.dest_idx):
                 if downstream_op is None:
-                    continue  # output variables in network, they do not have a destination
+                    # output variables in network, they do not have a destination
+                    continue
                 if not isinstance(downstream_op, QuantableOperation):
                     continue
 
@@ -111,46 +116,52 @@ class QuantizeSimplifyPass(QuantizationOptimizationPass):
 
 @OPTIM_ALGORITHMS.register()
 class QuantizeFusionPass(QuantizationOptimizationPass):
-    """
-    ## PPQ Quantize Fusion Pass(通用量化图融合过程)
+    r"""PPQ Quantize Fusion Pass(通用量化图融合过程)
 
-    Operation fusion (or kernel/layer fusion) is key optimization in many state-of-the-art execution frameworks.
+    Operation fusion (or kernel/layer fusion) is key optimization in many SOTA
+    execution frameworks.
 
-    Graph fusion can combine operations into a single op to obtain higher accuracy and performance,
-        Pattern like: Conv + Relu can be reduced to ConvRelu. This fusion will reduce memory accesses,
-        and the quantization point after conv can also be removed.
+    Graph fusion can combine operations into a single op to obtain higher accuracy and
+        performance. Pattern like: Conv + Relu can be reduced to ConvRelu. This fusion
+        will reduce memory accesses, and the quantization point after conv can also be
+        removed.
 
-    Technically we can fuse those layers before quantization, while fused layers are not supported by onnx standard.
-        So to say ConvRelu is not a valid onnx operation, no execution framework can parse it.
+    Technically we can fuse those layers before quantization, while fused layers are
+        not supported by onnx standard. So to say ConvRelu is not a valid onnx
+        operation, no execution framework can parse it.
 
-    Therefore, PPQ will simulate the graph fusion by adjusting quantization config: if PPQ finds their is a
-        pattern like Conv + Relu, the output quantization of Conv will be disabled, pretending that the Conv + Relu
-        fusion has happened.
+    Therefore, PPQ will simulate the graph fusion by adjusting quantization config:
+        if PPQ finds their is a pattern like Conv + Relu, the output quantization of
+        Conv will be disabled, pretending that the Conv + Relu fusion has happened.
 
     This Pass is designed for 2 types graph fusion:
         1. activation fusion
         2. passive operation fusion
 
-    For activation fusion, PPQ will identify the pattern: Computing op + Activation Op from your network. The output
-        quantization of computing op will be disabled with their state being set to QuantizationState.OVERLAPPED.
+    For activation fusion, PPQ will identify the pattern: Computing op + Activation Op
+        from your network. The output quantization of computing op will be disabled
+        with their state being set to QuantizationState.OVERLAPPED.
 
     Activation fusion here supports only simple activation patterns,
-        for complex activation functions like mish, swish,
-        will be represented as mish = tanh + mul + softplus, swish = sigmoid + mul in onnx,
-        cause onnx does not have a op definition for them.
-        Identifying those complex patterns requires pattern matching, which is implemented in ppq.IR.search.py
+        for complex activation functions like mish, swish, will be represented as
+        mish = tanh + mul + softplus, swish = sigmoid + mul in onnx, cause onnx does
+        not have a op definition for them. Identifying those complex patterns requires
+        pattern matching, which is implemented in ppq.IR.search.py
 
-    Complex quantization fusions must be invoked manually, PPQ implemented softplus & swish fusion functions in
-        ppq.quantization.optim.refine.MishFusionPass
-        ppq.quantization.optim.refine.SwishFusionPass
+    Complex quantization fusions must be invoked manually, PPQ implemented softplus &
+        swish fusion functions in:
+        :class:`mppq.quantization.optim.refine.MishFusionPass`
+        :class:`mppq.quantization.optim.refine.SwishFusionPass`
 
-    For passive operation fusion, PPQ will keep the input and the output variable share a same scale for passive operations.
-        An operation is identified as passive op only if its attribute "is_active_quant_op" = False, this
-        attribute is initialized by quantizer.
+    For passive operation fusion, PPQ will keep the input and the output variable share
+        a same scale for passive operations. An operation is identified as passive op
+        only if its attribute "is_active_quant_op" = False, this attribute is
+        initialized by quantizer.
 
-    If there is a passive operation having multiple input and output, the fusion procedure will make its
-    FIRST input variable and ALL output variables share the same scale(the same scale as its first input).
-    The quantization states of all output variables will be set to QuantizationState.OVERLAPPED.
+    If there is a passive operation having multiple input and output, the fusion
+    procedure will make its FIRST input variable and ALL output variables share the
+    same scale(the same scale as its first input). The quantization states of all
+    output variables will be set to QuantizationState.OVERLAPPED.
 
     ### Parameters:
 
@@ -169,14 +180,12 @@ class QuantizeFusionPass(QuantizationOptimizationPass):
 
     # fuse_passive_op(bool)
 
-            Whether to fuse passive op so that the input variable and output variable will share a same scale.
-
-    * fuse_matmul_add(bool)
-
-            Fuse MatMul + Bias Add
+            Whether to fuse passive op so that the input variable and output variable
+            will share a same scale.
 
     ### Usage
-    This pass is included in PPQ Quantization Setting, you can calling this optimization by:
+    This pass is included in PPQ Quantization Setting, you can calling this
+    optimization by:
 
         setting = QuantizationSettingFactory.default_setting()
 
@@ -207,7 +216,13 @@ class QuantizeFusionPass(QuantizationOptimizationPass):
         return all([platform == platforms[0] for platform in platforms])
 
     @empty_ppq_cache
-    def optimize(self, graph: BaseGraph, **kwargs) -> None:
+    def optimize(
+        self,
+        graph: BaseGraph,
+        dataloader: Optional[Iterable] = None,
+        executor: Optional[BaseGraphExecutor] = None,
+        **kwargs,
+    ) -> None:
         processor = SearchableGraph(graph)
 
         # fuse computing operations and its following activation.
@@ -234,7 +249,8 @@ class QuantizeFusionPass(QuantizationOptimizationPass):
                 ):
                     warning(
                         f"Unexpected dispatching was found: "
-                        f"Op {computing_op.name} and {act_op.name} should be send to a same platform."
+                        f"Op {computing_op.name} and {act_op.name} should be send "
+                        "to a same platform."
                     )
                     continue
 
@@ -258,18 +274,16 @@ class QuantizeFusionPass(QuantizationOptimizationPass):
                 )
 
                 for pattern in patterns:
-                    if any([not isinstance(op, QuantableOperation) for op in pattern]):
+                    if any(
+                        [not isinstance(op, QuantableOperation) for op in pattern],
+                    ) or any(
+                        [op.precision != pattern[0].precision for op in pattern],
+                    ):
                         warning(
-                            f"There is a pattern of swish activation in your network start from {pattern[0]}, "
-                            "however part of your swish activation is not quantable, "
-                            "so that graph fusion can not merge their quantization configuration."
-                        )
-                        continue
-                    if any([op.precision != pattern[0].precision for op in pattern]):
-                        warning(
-                            f"There is a pattern of swish activation in your network start from {pattern[0]}, "
-                            "however part of your swish activation is not quantable, "
-                            "so that graph fusion can not merge their quantization configuration."
+                            "There is a pattern of swish activation in your network "
+                            f"start from {pattern[0]}, however part of your swish "
+                            "activation is not quantable, so that graph fusion can not "
+                            "merge their quantization configuration."
                         )
                         continue
                     computing, sigmoid, mul = pattern
@@ -300,18 +314,16 @@ class QuantizeFusionPass(QuantizationOptimizationPass):
                 )
 
                 for pattern in patterns:
-                    if any([not isinstance(op, QuantableOperation) for op in pattern]):
+                    if any(
+                        [not isinstance(op, QuantableOperation) for op in pattern],
+                    ) or any(
+                        [op.precision != pattern[0].precision for op in pattern],
+                    ):
                         warning(
-                            f"There is a pattern of mish activation in your network start from {pattern[0]}, "
-                            "however part of your mish activation is not quantable, "
-                            "so that graph fusion can not merge their quantization configuration."
-                        )
-                        continue
-                    if any([op.precision != pattern[0].precision for op in pattern]):
-                        warning(
-                            f"There is a pattern of mish activation in your network start from {pattern[0]}, "
-                            "however part of your mish activation is not quantable, "
-                            "so that graph fusion can not merge their quantization configuration."
+                            "There is a pattern of mish activation in your network "
+                            f"start from {pattern[0]}, however part of your mish "
+                            "activation is not quantable, so that graph fusion can not "
+                            "merge their quantization configuration."
                         )
                         continue
                     computing, softplus, tanh, mul = pattern
@@ -341,8 +353,8 @@ class QuantizeFusionPass(QuantizationOptimizationPass):
                     mul.config.input_quantization_config[1].dominated_by = master_config
 
         if self.fuse_passive_op:
-            # all passive operations should never changes quantization configuration of its input
-            # so to say their input and output share a same scale.
+            # all passive operations should never changes quantization configuration of
+            # its input so to say their input and output share a same scale.
             for op in graph.operations.values():
                 if op.type not in PASSIVE_OPERATIONS:
                     continue
@@ -382,11 +394,10 @@ class QuantizeFusionPass(QuantizationOptimizationPass):
 
 @OPTIM_ALGORITHMS.register()
 class QuantAlignmentPass(QuantizationOptimizationPass):
-    """
-    ## PPQ Quant Alignment Pass(通用量化对齐过程)
+    r"""PPQ Quant Alignment Pass(通用量化对齐过程)
 
-    When deploy on real hardware and inference framework,
-        we will find that there are various restrictions or rules that we have to follow.
+    When deploy on real hardware and inference framework, we will find that there are
+    various restrictions or rules that we have to follow.
 
     * AVERAGE_POOL_2D: Input and outputs must all have same scale/zero_point
 
@@ -394,22 +405,24 @@ class QuantAlignmentPass(QuantizationOptimizationPass):
 
     * SLICE: Input and outputs must all have same scale/zero_point
 
-    More detailed restrictions please refer to: https://www.tensorflow.org/lite/performance/quantization_spec
+    More detailed restrictions please refer to:
+    https://www.tensorflow.org/lite/performance/quantization_spec
 
     Those restrictions, can be concluded as some quantization should share
-        the same quantization parameter with others. PPQ Quant Alignment Pass is designed
-        for dealing with problems like this.
+        the same quantization parameter with others. PPQ Quant Alignment Pass is
+        designed for dealing with problems like this.
 
-    PPQ uses Tensor Quantization Config (A data structure defined in ppq.core) to control the
-        quantization logic, so to say if we want to align quantization parameters, we align
-        their TQC in fact.
+    PPQ uses Tensor Quantization Config (A data structure defined in ppq.core) to
+        control the quantization logic, so to say if we want to align quantization
+        parameters, we align their TQC in fact.
 
     The way to align TQC is simple, code like:
         tqc1.set_master(master=tqc2)
-    Will make tqc1 and tqc2 share the same quantization parameters as tqc1 has, and change the
-    state of tqc2 to be QuantizationState.PASSIVE
+    Will make tqc1 and tqc2 share the same quantization parameters as tqc1 has, and
+    change the state of tqc2 to be QuantizationState.PASSIVE
 
-    If we access the scale of tqc2, PPQ will return its master TQC's scale instead, so does offset.
+    If we access the scale of tqc2, PPQ will return its master TQC's scale instead,
+    so does offset.
 
     That is tqc1 and tqc2 are bonuded with statement "tqc1.set_master(master=tqc2)".
 
@@ -460,17 +473,18 @@ class QuantAlignmentPass(QuantizationOptimizationPass):
             Conv2 ---
                     + --- Conv3
 
-            If we demand Add1 to have same input scale, this alignment will affect Conv3 also,
-                cause Conv2's output is feed to both Add1 and Conv3.
+            If we demand Add1 to have same input scale, this alignment will affect
+                Conv3 also, cause Conv2's output is feed to both Add1 and Conv3.
 
-            If force_overlap = False, PPQ alignment procedure will remain the output scale of
-                Conv2 as unchanged, while only align the input scale of Add1.
+            If force_overlap = False, PPQ alignment procedure will remain the output
+                scale of Conv2 as unchanged, while only align the input scale of Add1.
 
-            If force_overlap = True, the input of Add1, Conv3 and the output of Conv2 will all
-                be aligned to a same scale.
+            If force_overlap = True, the input of Add1, Conv3 and the output of Conv2
+                will all be aligned to a same scale.
 
     ### Usage
-    This pass is included in PPQ Quantization Setting, you can calling this optimization by:
+    This pass is included in PPQ Quantization Setting, you can calling this
+    optimization by:
 
         setting = QuantizationSettingFactory.default_setting()
 
@@ -486,10 +500,18 @@ class QuantAlignmentPass(QuantizationOptimizationPass):
 
     def __init__(
         self,
-        elementwise_alignment: str = "Align to Large",
-        concat_alignment: str = "Align to Output",
-        pooling_alignment: str = "None",
-        resize_alignment: str = "Align to Output",
+        elementwise_alignment: Literal[
+            "Align to Large", "Align to Output", "None"
+        ] = "Align to Large",
+        concat_alignment: Literal[
+            "Align to Large", "Align to Output", "None"
+        ] = "Align to Output",
+        pooling_alignment: Literal[
+            "Align to Input", "Align to Output", "None"
+        ] = "None",
+        resize_alignment: Literal[
+            "Align to Input", "Align to Output", "None"
+        ] = "Align to Output",
         force_overlap: bool = False,
     ) -> None:
         self.pooling_alignment = pooling_alignment
@@ -501,22 +523,10 @@ class QuantAlignmentPass(QuantizationOptimizationPass):
             "Align to Large",
             "Align to Output",
             "None",
-        }, "Elementwise Alignment can only be (None), (Align to Large) or (Align to Output)"
-        assert self.concat_alignment in {
-            "Align to Large",
-            "Align to Output",
-            "None",
-        }, "Concat Alignment can only be (None), (Align to Large) or (Align to Output)"
-        assert self.pooling_alignment in {
-            "Align to Output",
-            "None",
-            "Align to Input",
-        }, "Alignment method can only be (None), (Align to Input) or (Align to Output)"
-        assert self.resize_alignment in {
-            "Align to Output",
-            "None",
-            "Align to Input",
-        }, "concat_merge_method can only be (None), (Align to Input) or (Align to Output)"
+        }
+        assert self.concat_alignment in {"Align to Large", "Align to Output", "None"}
+        assert self.pooling_alignment in {"Align to Input", "Align to Output", "None"}
+        assert self.resize_alignment in {"Align to Input", "Align to Output", "None"}
         super().__init__(name="PPQ Quantization Alignment Pass")
 
     def align_to_input(self, op: QuantableOperation) -> TensorQuantizationConfig:
@@ -575,9 +585,9 @@ class QuantAlignmentPass(QuantizationOptimizationPass):
         master_config.offset = torch.tensor(offset, dtype=torch.float32, device=device)
 
         for slave_config in op.config.input_quantization_config[1:]:
-            if config.state == QuantizationStates.FP32:
+            if slave_config.state == QuantizationStates.FP32:
                 continue
-            elif config.policy.has_property(QuantizationProperty.FLOATING):
+            elif slave_config.policy.has_property(QuantizationProperty.FLOATING):
                 continue
             slave_config.master_by = master_config
         return master_config
@@ -597,8 +607,13 @@ class QuantAlignmentPass(QuantizationOptimizationPass):
                 slave_config.master_by = master_config
         return master_config
 
-    def optimize(self, graph: BaseGraph, **kwargs) -> None:
-
+    def optimize(
+        self,
+        graph: BaseGraph,
+        dataloader: Optional[Iterable] = None,
+        executor: Optional[BaseGraphExecutor] = None,
+        **kwargs,
+    ) -> None:
         for operation in graph.operations.values():
             if not isinstance(operation, QuantableOperation):
                 continue
@@ -627,10 +642,6 @@ class QuantAlignmentPass(QuantizationOptimizationPass):
                     self.align_to_input(operation)  # do not set master_config
                 if self.pooling_alignment == "Align to Output":
                     master_config = self.align_to_output(operation)
-                if self.pooling_alignment == "Align to Large":
-                    raise ValueError(
-                        "Alignment Method Error, Pooling Op can not align to lager input."
-                    )
 
             elif operation.type == "Resize":
                 if self.resize_alignment == "None":
@@ -639,10 +650,6 @@ class QuantAlignmentPass(QuantizationOptimizationPass):
                     master_config = self.align_to_output(operation)
                 if self.resize_alignment == "Align to Input":
                     self.align_to_input(operation)  # do not set master_config
-                if self.resize_alignment == "Align to Large":
-                    raise ValueError(
-                        "Alignment Method Error, Resize Op can not align to lager."
-                    )
 
             elif ALIGNMENT_MANUL_OVERRIDE in operation.extension_attrib:
                 method = operation.extension_attrib[ALIGNMENT_MANUL_OVERRIDE]
@@ -652,7 +659,8 @@ class QuantAlignmentPass(QuantizationOptimizationPass):
                     master_config = self.align_to_output(operation)
                 else:
                     warning(
-                        f"Unrecognized Alignment Method {method} for operation {operation.name}"
+                        f"Unrecognized Alignment Method {method} for "
+                        f"operation {operation.name}"
                     )
 
             if master_config is not None:
@@ -679,30 +687,28 @@ class SwishFusionPass(QuantizationOptimizationPass):
     def optimize(
         self,
         graph: BaseGraph,
-        dataloader: Iterable,
-        executor: BaseGraphExecutor,
+        dataloader: Optional[Iterable] = None,
+        executor: Optional[BaseGraphExecutor] = None,
         **kwargs,
     ) -> None:
         search_engine = SearchableGraph(graph)
         patterns = search_engine.pattern_matching(
-            patterns=[lambda x: x.is_computing_op, "Sigmoid", "Mul"],
+            patterns=[lambda op: op.is_computing_op, "Sigmoid", "Mul"],
             edges=[[0, 1], [1, 2], [0, 2]],
             exclusive=True,
         )
 
         for pattern in patterns:
-            if any([not isinstance(op, QuantableOperation) for op in pattern]):
+            if any(
+                [not isinstance(op, QuantableOperation) for op in pattern],
+            ) or any(
+                [op.precision != pattern[0].precision for op in pattern],
+            ):
                 warning(
-                    f"There is a pattern of swish activation in your network start from {pattern[0]}, "
-                    "however part of your swish activation is not quantable, "
-                    "so that graph fusion can not merge their quantization configuration."
-                )
-                continue
-            if any([op.precision != pattern[0].precision for op in pattern]):
-                warning(
-                    f"There is a pattern of swish activation in your network start from {pattern[0]}, "
-                    "however part of your swish activation is not quantable, "
-                    "so that graph fusion can not merge their quantization configuration."
+                    "There is a pattern of swish activation in your network start "
+                    f"from {pattern[0]}, however part of your swish activation is "
+                    "not quantable, so that graph fusion can not merge their "
+                    "quantization configuration."
                 )
                 continue
             computing, sigmoid, mul = pattern
@@ -724,27 +730,31 @@ class MishFusionPass(QuantizationOptimizationPass):
     def __init__(self) -> None:
         super().__init__("Mish Fusion")
 
-    def optimize(self, graph: BaseGraph, **kwargs) -> None:
+    def optimize(
+        self,
+        graph: BaseGraph,
+        dataloader: Optional[Iterable] = None,
+        executor: Optional[BaseGraphExecutor] = None,
+        **kwargs,
+    ) -> None:
         search_engine = SearchableGraph(graph)
         patterns = search_engine.pattern_matching(
-            patterns=[lambda x: x.is_computing_op, "Softplus", "Tanh", "Mul"],
+            patterns=[lambda op: op.is_computing_op, "Softplus", "Tanh", "Mul"],
             edges=[[0, 1], [1, 2], [2, 3], [0, 3]],
             exclusive=True,
         )
 
         for pattern in patterns:
-            if any([not isinstance(op, QuantableOperation) for op in pattern]):
+            if any(
+                [not isinstance(op, QuantableOperation) for op in pattern],
+            ) or any(
+                [op.precision != pattern[0].precision for op in pattern],
+            ):
                 warning(
-                    f"There is a pattern of mish activation in your network start from {pattern[0]}, "
-                    "however part of your mish activation is not quantable, "
-                    "so that graph fusion can not merge their quantization configuration."
-                )
-                continue
-            if any([op.precision != pattern[0].precision for op in pattern]):
-                warning(
-                    f"There is a pattern of mish activation in your network start from {pattern[0]}, "
-                    "however part of your mish activation is not quantable, "
-                    "so that graph fusion can not merge their quantization configuration."
+                    "There is a pattern of mish activation in your network start "
+                    f"from {pattern[0]}, however part of your mish activation is not "
+                    "quantable, so that graph fusion can not merge their quantization "
+                    "configuration."
                 )
                 continue
             computing, softplus, tanh, mul = pattern

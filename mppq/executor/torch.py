@@ -5,6 +5,13 @@ import torch
 
 from mppq.data import DataType
 from mppq.defs import empty_ppq_cache
+from mppq.executor.base import (
+    BaseGraphExecutor,
+    GraphInput,
+    QuantRuntimeHook,
+    RuntimeHook,
+)
+from mppq.executor.op.base import TorchBackendContext
 from mppq.ir.base.command import GraphDeployCommand
 from mppq.ir.base.graph import BaseGraph
 from mppq.ir.base.opdef import Operation
@@ -12,10 +19,7 @@ from mppq.ir.base.quantize import QuantableOperation
 from mppq.ir.deploy import RunnableGraph
 from mppq.logger import warning
 from mppq.quant import QuantizationStates, TensorQuantizationConfig
-from mppq.quantization.qfunction import PPQuantFunction
-
-from .base import BaseGraphExecutor, GraphInput, QuantOPRuntimeHook, RuntimeHook
-from .op.base import TorchBackendContext
+from mppq.utils.qfunction import ppq_fake_quant
 
 
 class TorchMetaDataTracingHook(RuntimeHook):
@@ -187,7 +191,7 @@ class TorchExecutor(BaseGraphExecutor):
 
     ### Quantize Delegate (量化代理函数)
 
-    PPQ 允许你为网络中特定的 TQC 注册量化代理函数。这样你就可以注册自定义的量化处理逻辑，而非使用 PPQLinearQuantFunction 完成量化。
+    PPQ 允许你为网络中特定的 TQC 注册量化代理函数。这样你就可以注册自定义的量化处理逻辑，而非使用 linear_fake_quant 完成量化。
 
         def register_quantize_delegate(
             self, config: TensorQuantizationConfig,
@@ -220,12 +224,6 @@ class TorchExecutor(BaseGraphExecutor):
 
         executor = TorchExecutor(graph=ppq_quant_ir)
         executor.forward(inputs=..., output_names=..., hooks=...)
-
-    这一计算图可以是量化过后的，也可以是没有量化的。但 PPQ 希望传入的计算图经过正确调度，传入没有调度的计算图将会触发警报：
-
-        if not graph.extension_attrib.get(IS_DISPATCHED_GRAPH, False):
-            warning('Can not create executor with your graph, graph is not correctly dispatched, '
-                        'use dispatch_graph(graph=ir, platform=platform, setting=setting) first.')
 
     executor.forward 需要三个参数，下面举例对其进行说明：
 
@@ -284,7 +282,7 @@ class TorchExecutor(BaseGraphExecutor):
     def __init__(
         self, graph: BaseGraph, fp16_mode: bool = True, device: str = "cuda"
     ) -> None:
-        self._default_quant_fn = PPQuantFunction
+        self._default_quant_fn = ppq_fake_quant
         self._deployed = False
         self._device = device
         self._executing_context = TorchBackendContext(executing_device=self._device)
@@ -524,7 +522,7 @@ class TorchExecutor(BaseGraphExecutor):
 
                 # invoking pre-forward hook
                 if operation_runtime_hook is not None:
-                    if isinstance(operation_runtime_hook, QuantOPRuntimeHook):
+                    if isinstance(operation_runtime_hook, QuantRuntimeHook):
                         input_data = operation_runtime_hook.pre_forward_hook(
                             inputs=[var.value for var in operation.inputs],
                             quant_inputs=input_data,
@@ -556,7 +554,7 @@ class TorchExecutor(BaseGraphExecutor):
 
                 # invoking post-forward hook
                 if operation_runtime_hook is not None:
-                    if isinstance(operation_runtime_hook, QuantOPRuntimeHook):
+                    if isinstance(operation_runtime_hook, QuantRuntimeHook):
                         outputs = operation_runtime_hook.post_forward_hook(
                             outputs=fp_outputs,
                             quant_outputs=outputs,

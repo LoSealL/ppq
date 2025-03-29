@@ -1,12 +1,11 @@
 import torch
 
 from mppq.data import convert_any_to_tensor
+from mppq.frontend.onnx.onnxruntime_exporter import ONNXRUNTIMExporter
 from mppq.ir.base.graph import BaseGraph
 from mppq.ir.base.opdef import Operation, Variable
 from mppq.quant import QuantizationProperty, TensorQuantizationConfig
 from mppq.utils.round import ppq_tensor_round
-
-from .onnxruntime_exporter import ONNXRUNTIMExporter
 
 
 class OpenvinoExporter(ONNXRUNTIMExporter):

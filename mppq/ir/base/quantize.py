@@ -1,16 +1,21 @@
 from copy import deepcopy
-from typing import Any, List, Tuple
+from typing import Any, List, Optional, Protocol, Tuple
+
+from torch import Tensor
 
 from mppq.data import convert_any_to_tensor
+from mppq.ir.base.opdef import Operation, Variable
 from mppq.quant import (
     OperationQuantizationConfig,
     QuantizationStates,
     TargetPrecision,
     TensorQuantizationConfig,
 )
-from mppq.quantization.qfunction import BaseQuantFunction
 
-from .opdef import Operation, Variable
+
+class BaseQuantFunction(Protocol):
+    def __call__(self, tensor: Tensor, config: TensorQuantizationConfig) -> Tensor:
+        return tensor
 
 
 class QuantableOperation(Operation):
@@ -103,7 +108,9 @@ class QuantableOperation(Operation):
                 ).clone()
         return self
 
-    def dequantize(self, parameter_only: bool = False, expire_device: str = "cpu"):
+    def dequantize(
+        self, parameter_only: bool = False, expire_device: Optional[str] = "cpu"
+    ):
         if self._dequantized:
             return self
         for var, quant_config in zip(
@@ -131,7 +138,7 @@ class QuantableOperation(Operation):
         self._dequantized = True
         return self
 
-    def restore_quantize_state(self, expire_device: str = "cpu"):
+    def restore_quantize_state(self, expire_device: Optional[str] = "cpu"):
         if not self._dequantized:
             return self
         for var, quant_config in zip(

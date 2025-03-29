@@ -22,8 +22,7 @@ from mppq.quantization.optim.base import (
     OPTIM_ALGORITHMS,
     QuantizationOptimizationPipeline,
 )
-
-from .base import QUANTIZER, BaseQuantizer
+from mppq.quantizer.base import QUANTIZER, BaseQuantizer
 
 
 def create_default_quant_config(
@@ -152,10 +151,6 @@ class DefaultQuantizer(BaseQuantizer):
     r"""默认量化器，用于示例。"""
 
     @property
-    def target_precision(self) -> TargetPrecision:
-        return TargetPrecision.INT8
-
-    @property
     def quant_operation_types(self):
         return set(COMPUTING_OP)
 
@@ -213,6 +208,16 @@ class DefaultQuantizer(BaseQuantizer):
         return base_qc
 
     @property
+    def default_prequant_pipeline(self) -> QuantizationOptimizationPipeline:
+        return QuantizationOptimizationPipeline(
+            [
+                OPTIM_ALGORITHMS["ActivationEqualizationPass"](),
+                OPTIM_ALGORITHMS["LayerwiseEqualizationPass"](),
+                OPTIM_ALGORITHMS["ChannelwiseSplitPass"](),
+            ]
+        )
+
+    @property
     def default_quant_pipeline(self) -> QuantizationOptimizationPipeline:
         return QuantizationOptimizationPipeline(
             [
@@ -220,13 +225,14 @@ class DefaultQuantizer(BaseQuantizer):
                 OPTIM_ALGORITHMS["QuantizeFusionPass"](),
                 OPTIM_ALGORITHMS["QuantizeSimplifyPass"](),
                 OPTIM_ALGORITHMS["ParameterQuantizePass"](),
+                OPTIM_ALGORITHMS["IsotoneCalibrationPass"](),
                 OPTIM_ALGORITHMS["RuntimeCalibrationPass"](),
                 OPTIM_ALGORITHMS["QuantAlignmentPass"](),
                 OPTIM_ALGORITHMS["PassiveParameterQuantizePass"](),
                 OPTIM_ALGORITHMS["BiasCorrectionPass"](),
                 OPTIM_ALGORITHMS["LearnedStepSizePass"](),
-                OPTIM_ALGORITHMS["PassiveParameterQuantizePass"](),
                 OPTIM_ALGORITHMS["AdaroundPass"](),
+                OPTIM_ALGORITHMS["RoundTuningPass"](),
                 OPTIM_ALGORITHMS["PassiveParameterQuantizePass"](),
                 OPTIM_ALGORITHMS["ParameterBakingPass"](),
             ]
