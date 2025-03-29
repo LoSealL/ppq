@@ -1,5 +1,5 @@
 from collections import defaultdict
-from typing import Callable, Dict, Iterable, List, Optional
+from typing import Any, Callable, Dict, Iterable, List, Optional
 
 import torch
 from tqdm import tqdm
@@ -10,9 +10,9 @@ from mppq.executor.torch import TorchExecutor
 from mppq.ir.base.graph import BaseGraph
 from mppq.ir.base.quantize import Operation, QuantableOperation
 from mppq.ir.search import SearchableGraph, TraversalCommand
+from mppq.logger import info
 from mppq.quantization.algorithm.equalization import EqualizationPair
-
-from .base import OPTIM_ALGORITHMS, QuantizationOptimizationPass
+from mppq.quantization.optim.base import OPTIM_ALGORITHMS, QuantizationOptimizationPass
 
 OPTIMIZATION_LAYERTYPE_CONFIG = {
     1: {
@@ -46,19 +46,20 @@ class ActivationEqualizationPass(QuantizationOptimizationPass):
     """PPQ Customized Layerwise Equalization Pass.
 
     This is a highly customized implementation of layerwise equalization.
-    With PPQ graph searching engine, this implementation can equalize multiple layer at once,
-        Even some layers are behind Add, Sub, Pooling.
+    With PPQ graph searching engine, this implementation can equalize multiple layer
+    at once, even some layers are behind Add, Sub, Pooling.
 
-    Not only weight, bias and activation are also taken into consideration with this implementation.
-    if including_bias and including_activation set as True, all weight, bias, activation will be pull
-        equal with this function.
+    Not only weight, bias and activation are also taken into consideration with this
+    implementation. If including_bias and including_activation set as True, all
+    weight, bias, activation will be pull equal with this function.
 
     Args:
         iterations (int): Equalization iterations.
         weight_threshold (float, optional):
-            Value threshold, all weight below that value will keep unchanged through this function.
-            ATTENTION: this threshold will greatly affects your equalization performance.
-            Defaults to 0.5. recommend to try 0.5, 2, 0
+            Value threshold, all weight below that value will keep unchanged through
+            this function.
+        ATTENTION: this threshold will greatly affects your equalization performance.
+        Defaults to 0.5. recommend to try 0.5, 2, 0
 
         including_bias (bool, optional):
             whether to include bias into consideration.
@@ -118,10 +119,10 @@ class ActivationEqualizationPass(QuantizationOptimizationPass):
             # forward matching equalization pair.
             forward_matchings = search_engine(
                 TraversalCommand(
-                    sp_expr=lambda x: x == operation,
+                    sp_expr=lambda op: op == operation,
                     rp_expr=lambda x, y: y.type
                     in OPTIMIZATION_LAYERTYPE_CONFIG[self.optimize_level],
-                    ep_expr=lambda x: x.type
+                    ep_expr=lambda op: op.type
                     not in OPTIMIZATION_LAYERTYPE_CONFIG[self.optimize_level],
                     direction="down",
                 )
@@ -134,10 +135,10 @@ class ActivationEqualizationPass(QuantizationOptimizationPass):
             # backward matching equalization pair
             forward_matchings = search_engine(
                 TraversalCommand(
-                    sp_expr=lambda x: x in downstream_ops,
+                    sp_expr=lambda op: op in downstream_ops,
                     rp_expr=lambda x, y: y.type
                     in OPTIMIZATION_LAYERTYPE_CONFIG[self.optimize_level],
-                    ep_expr=lambda x: x.type
+                    ep_expr=lambda op: op.type
                     not in OPTIMIZATION_LAYERTYPE_CONFIG[self.optimize_level],
                     direction="up",
                 )
@@ -178,7 +179,7 @@ class ActivationEqualizationPass(QuantizationOptimizationPass):
         graph: BaseGraph,
         executor: TorchExecutor,
         dataloader: Iterable,
-        collate_fn: Callable,
+        collate_fn: Optional[Callable],
         operations: List[Operation],
         steps: int = 16,
     ) -> Dict[str, torch.Tensor]:
@@ -205,7 +206,7 @@ class ActivationEqualizationPass(QuantizationOptimizationPass):
         for idx, batch in tqdm(
             enumerate(dataloader),
             desc="Equalization Data Collecting.",
-            total=min(len(dataloader), steps),
+            total=steps,
         ):
             data = batch
             if collate_fn is not None:
@@ -213,12 +214,13 @@ class ActivationEqualizationPass(QuantizationOptimizationPass):
             outputs = executor.forward(data, output_names=output_names)
             for name, output in zip(output_names, outputs):
                 op = graph.variables[name].source_op
+                assert op is not None
                 output_collector[name].append(aggregate(op, output).unsqueeze(-1))
             if idx > steps:
                 break
 
         result = {}
-        for name, output in zip(output_names, outputs):
+        for name in output_names:
             result[name] = torch.cat(output_collector[name], dim=-1)
         return result
 
@@ -226,20 +228,21 @@ class ActivationEqualizationPass(QuantizationOptimizationPass):
     def optimize(
         self,
         graph: BaseGraph,
-        dataloader: Iterable,
-        executor: BaseGraphExecutor,
-        collate_fn: Callable,
+        dataloader: Optional[Iterable] = None,
+        executor: Optional[BaseGraphExecutor] = None,
+        calib_steps: int = 16,
+        collate_fn: Optional[Callable[[Any], Any]] = None,
         **kwargs,
     ) -> None:
+        assert isinstance(executor, TorchExecutor)
+        assert dataloader is not None
         interested_operations = []
 
         if self.interested_layers is None:
-
             for operation in graph.operations.values():
                 if operation.type in EQUALIZATION_OPERATION_TYPE:
                     interested_operations.append(operation)
         else:
-
             for name in self.interested_layers:
                 if name in graph.operations:
                     interested_operations.append(graph.operations[name])
@@ -254,6 +257,7 @@ class ActivationEqualizationPass(QuantizationOptimizationPass):
             dataloader=dataloader,
             collate_fn=collate_fn,
             operations=interested_operations,
+            steps=calib_steps,
         )
 
         for name, act in activations.items():
@@ -262,7 +266,7 @@ class ActivationEqualizationPass(QuantizationOptimizationPass):
         print(
             f"{len(pairs)} equalization pair(s) was found, ready to run optimization."
         )
-        for iter_times in tqdm(
+        for _ in tqdm(
             range(self.iterations),
             desc="Activation Equalization",
             total=self.iterations,
@@ -279,16 +283,18 @@ class ActivationEqualizationPass(QuantizationOptimizationPass):
 
 @OPTIM_ALGORITHMS.register()
 class LayerwiseEqualizationPass(QuantizationOptimizationPass):
-    """
-    ## Layer-wise Equalization Pass(层间权重均衡过程)
+    r"""Layer-wise Equalization Pass(层间权重均衡过程)
 
     Weight distributions can differ strongly between output channels,
-    using only one quantization scale, per-tensor quantization has its trouble for representing the value among channels.
+    using only one quantization scale, per-tensor quantization has its trouble
+    for representing the value among channels.
 
-    For example, in the case where one channel has weights in the range [−128, 128] and another channel has weights in the range (−0.5, 0.5),
-    the weights in the latter channel will all be quantized to 0 when quantizing to 8-bits.
+    For example, in the case where one channel has weights in the range [−128, 128]
+    and another channel has weights in the range (−0.5, 0.5), the weights in the
+    latter channel will all be quantized to 0 when quantizing to 8-bits.
 
-    Hopefully, the performance can be improved by adjusting the weights for each output channel such that their ranges are more similar.
+    Hopefully, the performance can be improved by adjusting the weights for each
+    output channel such that their ranges are more similar.
 
     Formula:
 
@@ -319,7 +325,8 @@ class LayerwiseEqualizationPass(QuantizationOptimizationPass):
             Integer value of Algorithm iterations.
 
             More iterations will give more plainness in your weight distribution,
-            iteration like 100 can flatten all the parameter in your network to a same level.
+            iteration like 100 can flatten all the parameter in your network to a same
+            level.
 
             You are not recommended to iterate until value converges,
             in some cases stop iteration earlier will give you a better performance.
@@ -328,12 +335,15 @@ class LayerwiseEqualizationPass(QuantizationOptimizationPass):
 
             A threshold that stops processing value that is too small.
 
-            By default, the scale factor of equalization method is computed as sqrt(max(abs(W_1)) / max(abs(W_2))),
-            the maximum value of W_2 can be very small(like 1e-14), while the maximum value W_1 can be 0.5.
+            By default, the scale factor of equalization method is computed as
+            sqrt(max(abs(W_1)) / max(abs(W_2))), the maximum value of W_2 can be very
+            small(like 1e-14), while the maximum value W_1 can be 0.5.
 
-            In this case, the computed scale factor is 1e7, the optimization will loss its numerical stability and even give an unreasonable result.
+            In this case, the computed scale factor is 1e7, the optimization will loss
+            its numerical stability and even give an unreasonable result.
 
-            To prevent the scale factor becoming too large, ppq clips all the value smaller than this threshold before iterations.
+            To prevent the scale factor becoming too large, ppq clips all the value
+            smaller than this threshold before iterations.
 
             This parameter will significantly affects the optimization result.
 
@@ -343,7 +353,8 @@ class LayerwiseEqualizationPass(QuantizationOptimizationPass):
 
             Whether to include bias in computing scale factor.
 
-            If including_bias is True, the scale factor will be computed as sqrt(max(abs(W_1 : b_1)) / max(abs(W_2 : b_2)))
+            If including_bias is True, the scale factor will be computed as
+            sqrt(max(abs(W_1 : b_1)) / max(abs(W_2 : b_2)))
 
             Where W_1 : b_1 mean an augmented matrix with W_1 and b_1
 
@@ -351,13 +362,15 @@ class LayerwiseEqualizationPass(QuantizationOptimizationPass):
 
             Only take effects when including_bias = True
 
-            the scale factor will be computed as sqrt(max(abs(W_1 : b_1 * bias_multiplier)) / max(abs(W_2 : b_2 * bias_multiplier)))
+            the scale factor will be computed as
+            sqrt(max(abs(W_1:b_1 * bias_multiplier))/max(abs(W_2:b_2*bias_multiplier)))
 
             This is an correction term for bias.
 
     # including_activation(bool)
 
-            Same as the parameter including_bias, whether to include activation in computing scale factor.
+            Same as the parameter including_bias, whether to include activation in
+            computing scale factor.
 
     # activation_multiplier(float)
 
@@ -365,15 +378,18 @@ class LayerwiseEqualizationPass(QuantizationOptimizationPass):
 
     # optimize_level(int)
 
-            level - 1: equalization will only cross ('Relu', 'MaxPool', 'GlobalMaxPool', 'PRelu', 'AveragePool', 'GlobalAveragePool')
+            level - 1: equalization will only cross ('Relu', 'MaxPool', 'GlobalMaxPool',
+                       'PRelu', 'AveragePool', 'GlobalAveragePool')
 
-            level - 2: equalization will cross ('Relu', 'MaxPool', 'GlobalMaxPool', 'Add', 'Sub', 'PRelu', 'AveragePool', 'GlobalAveragePool')
+            level - 2: equalization will cross ('Relu', 'MaxPool', 'GlobalMaxPool',
+                       'Add', 'Sub', 'PRelu', 'AveragePool', 'GlobalAveragePool')
 
             Here is an example for illustrating the difference, if we got a graph like:
 
                 Conv1 - Relu - Conv2
 
-            Both level - 1 and level - 2 optimization can find there is a equalization pair: (Conv1 - Conv2).
+            Both level - 1 and level - 2 optimization can find there is a equalization
+            pair: (Conv1 - Conv2).
 
             however for a complex graph like:
 
@@ -381,21 +397,22 @@ class LayerwiseEqualizationPass(QuantizationOptimizationPass):
 
             level - 1 optimization will simply skip Conv1 and Conv2.
 
-            level - 2 optimization will trace another input from Add, and then PPQ will take all the input operations of Add
-            as the upstream layers in equalization.
+            level - 2 optimization will trace another input from Add, and then PPQ will
+            take all the input operations of Add as the upstream layers in equalization.
 
-            PPQ use graph search engine for parsing graph structure, check ppq.IR.search.py for more information.
+            PPQ use graph search engine for parsing graph structure, check
+            mppq.ir.search.py for more information.
 
     # interested_layers(List[str])
 
             Only layer that listed in interested_layers will be processed by this pass.
 
-            If interested_layers is None or empty list, all the layers will be processed.
+            If interested_layers is None or empty list, all the layers will be processed
 
     ### Warning:
     You can not compare a equalized graph with an unequalized graph layer by layer,
-    since equalization pass guarantees only the output of your network will be kept as same,
-    the intermediate result can be changed rapidly.
+    since equalization pass guarantees only the output of your network will be kept as
+    same, the intermediate result can be changed rapidly.
 
     Since then, PPQ invokes this pass before network quantization.
 
@@ -409,7 +426,8 @@ class LayerwiseEqualizationPass(QuantizationOptimizationPass):
     Layer-wise Equalization Pass should be invoked in pre-quant optimization pipeline.
     (pre-quant optimization pipeline take effects before quantization)
 
-    This pass is included in PPQ Quantization Setting, you can calling this optimization by:
+    This pass is included in PPQ Quantization Setting, you can calling this
+    optimization by:
 
         setting = QuantizationSettingFactory.default_setting()
 
@@ -441,24 +459,26 @@ class LayerwiseEqualizationPass(QuantizationOptimizationPass):
         act_multiplier: float = 0.5,
         interested_layers: Optional[List[str]] = None,
         optimize_level: int = 1,
-        verbose: bool = False,
     ) -> None:
         """PPQ Customized Layerwise Equalization Pass.
 
         This is a highly customized implementation of layerwise equalization.
-        With PPQ graph searching engine, this implementation can equalize multiple layer at once,
-            Even some layers are behind Add, Sub, Pooling.
+        With PPQ graph searching engine, this implementation can equalize multiple
+        layer at once, even some layers are behind Add, Sub, Pooling.
 
-        Not only weight, bias and activation are also taken into consideration with this implementation.
-        if including_bias and including_activation set as True, all weight, bias, activation will be pull
-            equal with this function.
+        Not only weight, bias and activation are also taken into consideration with
+        this implementation. If including_bias and including_activation set as True,
+        all weight, bias, activation will be pull equal with this function.
 
         Args:
             iterations (int): Equalization iterations.
+
             weight_threshold (float, optional):
-                Value threshold, all weight below that value will keep unchanged through this function.
-                ATTENTION: this threshold will greatly affects your equalization performance.
-                Defaults to 0.5. recommend to try 0.5, 2, 0
+                Value threshold, all weight below that value will keep unchanged
+                through this function.
+
+            ATTENTION: this threshold will greatly affects your equalization performance
+            Defaults to 0.5. recommend to try 0.5, 2, 0
 
             including_bias (bool, optional):
                 whether to include bias into consideration.
@@ -483,7 +503,6 @@ class LayerwiseEqualizationPass(QuantizationOptimizationPass):
                 if None is given, suppose all layer need to be equalized.
 
             optimize_level (int, optional): [description]. Defaults to 2.
-            verbose (bool, optional): [description]. Defaults to False.
         """
         self.optimize_level = optimize_level
         self.iterations = iterations
@@ -499,7 +518,6 @@ class LayerwiseEqualizationPass(QuantizationOptimizationPass):
         self.act_multiplier = act_multiplier
 
         self.interested_layers = interested_layers
-        self.verbose = verbose
         super().__init__(name="PPQ Layerwise Equalization Pass")
 
     def find_equalization_pair(
@@ -521,26 +539,24 @@ class LayerwiseEqualizationPass(QuantizationOptimizationPass):
             # forward matching equalization pair.
             forward_matchings = search_engine(
                 TraversalCommand(
-                    sp_expr=lambda x: x == operation,
+                    sp_expr=lambda op: op == operation,
                     rp_expr=lambda x, y: y.type
                     in OPTIMIZATION_LAYERTYPE_CONFIG[self.optimize_level],
-                    ep_expr=lambda x: x.type
+                    ep_expr=lambda op: op.type
                     not in OPTIMIZATION_LAYERTYPE_CONFIG[self.optimize_level],
                     direction="down",
                 )
             )
 
-            downstream_ops = set()
-            for matching in forward_matchings:
-                downstream_ops.add(matching[-1])
+            downstream_ops = {matching[-1] for matching in forward_matchings}
 
             # backward matching equalization pair
             forward_matchings = search_engine(
                 TraversalCommand(
-                    sp_expr=lambda x: x in downstream_ops,
+                    sp_expr=lambda op: op in downstream_ops,
                     rp_expr=lambda x, y: y.type
                     in OPTIMIZATION_LAYERTYPE_CONFIG[self.optimize_level],
-                    ep_expr=lambda x: x.type
+                    ep_expr=lambda op: op.type
                     not in OPTIMIZATION_LAYERTYPE_CONFIG[self.optimize_level],
                     direction="up",
                 )
@@ -581,7 +597,7 @@ class LayerwiseEqualizationPass(QuantizationOptimizationPass):
         graph: BaseGraph,
         executor: TorchExecutor,
         dataloader: Iterable,
-        collate_fn: Callable,
+        collate_fn: Optional[Callable[[Any], Any]],
         operations: List[Operation],
         steps: int = 16,
     ) -> Dict[str, torch.Tensor]:
@@ -608,7 +624,7 @@ class LayerwiseEqualizationPass(QuantizationOptimizationPass):
         for idx, batch in tqdm(
             enumerate(dataloader),
             desc="Equalization Data Collecting.",
-            total=min(len(dataloader), steps),
+            total=steps,
         ):
             data = batch
             if collate_fn is not None:
@@ -616,12 +632,13 @@ class LayerwiseEqualizationPass(QuantizationOptimizationPass):
             outputs = executor.forward(data, output_names=output_names)
             for name, output in zip(output_names, outputs):
                 op = graph.variables[name].source_op
+                assert op is not None
                 output_collector[name].append(aggregate(op, output).unsqueeze(-1))
             if idx > steps:
                 break
 
         result = {}
-        for name, output in zip(output_names, outputs):
+        for name in output_names:
             result[name] = torch.cat(output_collector[name], dim=-1)
         return result
 
@@ -629,11 +646,14 @@ class LayerwiseEqualizationPass(QuantizationOptimizationPass):
     def optimize(
         self,
         graph: BaseGraph,
-        dataloader: Iterable,
-        executor: BaseGraphExecutor,
-        collate_fn: Callable,
+        dataloader: Optional[Iterable] = None,
+        executor: Optional[BaseGraphExecutor] = None,
+        calib_steps: int = 32,
+        collate_fn: Optional[Callable[[Any], Any]] = None,
         **kwargs,
     ) -> None:
+        assert isinstance(executor, TorchExecutor)
+        assert dataloader is not None
         interested_operations = []
 
         if self.interested_layers is None:
@@ -658,23 +678,20 @@ class LayerwiseEqualizationPass(QuantizationOptimizationPass):
                 dataloader=dataloader,
                 collate_fn=collate_fn,
                 operations=interested_operations,
+                steps=calib_steps,
             )
 
             for name, act in activations.items():
                 graph.variables[name].value = act  # 将激活值写回网络
 
-        print(
-            f"{len(pairs)} equalization pair(s) was found, ready to run optimization."
-        )
-        for iter_times in tqdm(
+        info(f"{len(pairs)} equalization pair(s) was found, ready to run optimization.")
+        for _ in tqdm(
             range(self.iterations), desc="Layerwise Equalization", total=self.iterations
         ):
             for equalization_pair in pairs:
-                print([layer for layer in equalization_pair.upstream_layers])
+                info(f"{[layer for layer in equalization_pair.upstream_layers]}")
                 equalization_pair.equalize(
                     value_threshold=self.value_threshold,
-                    including_weight=self.including_weight,
-                    weight_multiplier=self.weight_multiplier,
                     including_bias=self.including_bias,
                     including_act=self.including_act,
                     bias_multiplier=self.bias_multiplier,
@@ -709,7 +726,8 @@ class ChannelwiseSplitPass(LayerwiseEqualizationPass):
         # channel split 权重阈值，试试 0.5, 2
         # 这是个十分重要的属性，所有小于该值的通道不会参与运算
         # value threshold of channel split, try 0.5 and 2
-        # it is a curical setting of channel split, value below this threshold won't get included in this optimizition.
+        # it is a curical setting of channel split, value below this threshold won't
+        # get included in this optimizition.
 
         including_bias:
         bias_multiplier:
@@ -732,41 +750,36 @@ class ChannelwiseSplitPass(LayerwiseEqualizationPass):
         act_multiplier: float = 0.5,
         interested_layers: Optional[List[str]] = None,
         optimize_level: int = 1,
-        verbose: bool = False,
     ) -> None:
-
-        self.optimize_level = optimize_level
-        self.iterations = iterations
-        self.value_threshold = threshold
-
-        self.including_bias = including_bias
-        self.bias_multiplier = bias_multiplier
-
-        self.including_act = including_act
-        self.act_multiplier = act_multiplier
-
-        self.interested_layers = interested_layers
-        self.verbose = verbose
-
+        super().__init__(
+            iterations=iterations,
+            value_threshold=threshold,
+            including_bias=including_bias,
+            bias_multiplier=bias_multiplier,
+            including_act=including_act,
+            act_multiplier=act_multiplier,
+            interested_layers=interested_layers,
+            optimize_level=optimize_level,
+        )
         self.name = "PPQ Channelwise Split Pass"
 
     def optimize(
         self,
         graph: BaseGraph,
-        dataloader: Iterable,
-        executor: BaseGraphExecutor,
-        collate_fn: Callable,
+        dataloader: Optional[Iterable] = None,
+        executor: Optional[BaseGraphExecutor] = None,
+        calib_steps: int = 32,
+        collate_fn: Optional[Callable[[Any], Any]] = None,
         **kwargs,
     ) -> None:
-
+        assert isinstance(executor, TorchExecutor)
+        assert dataloader is not None
         interested_operations = []
         if self.interested_layers is None:
-
             for operation in graph.operations.values():
                 if operation.type in EQUALIZATION_OPERATION_TYPE:
                     interested_operations.append(operation)
         else:
-
             for name in self.interested_layers:
                 if name in graph.operations:
                     interested_operations.append(graph.operations[name])
@@ -775,10 +788,8 @@ class ChannelwiseSplitPass(LayerwiseEqualizationPass):
             graph=graph, interested_operations=interested_operations
         )
 
-        print(
-            f"{len(pairs)} equalization pair(s) was found, ready to run optimization."
-        )
-        for iter_times in tqdm(
+        info(f"{len(pairs)} equalization pair(s) was found, ready to run optimization.")
+        for _ in tqdm(
             range(self.iterations),
             desc="Layerwise Channel Split",
             total=self.iterations,

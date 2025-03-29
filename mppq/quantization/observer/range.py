@@ -1,10 +1,6 @@
 from typing import Tuple
 
-from mppq.common import (
-    OBSERVER_MIN_SCALE,
-    OBSERVER_MIN_SCALE_MANUL_OVERRIDE,
-    OBSERVER_WARNING,
-)
+from mppq.common import OBSERVER_MIN_SCALE, OBSERVER_MIN_SCALE_MANUL_OVERRIDE
 from mppq.defs import ppq_quant_param_computing_function
 from mppq.logger import warning
 from mppq.quant import QuantizationProperty, RoundingPolicy, TensorQuantizationConfig
@@ -47,7 +43,7 @@ def minmax_to_scale_offset(
     if config.policy.has_property(QuantizationProperty.ASYMMETRIC):
         val_range = float(max_val - min_val)
         scale = val_range / (config.quant_max - config.quant_min)
-        if scale < scale_threshold and OBSERVER_WARNING:
+        if scale < scale_threshold:
             warning(
                 "Numeric instability detected: "
                 "ppq find there is a scale value < 1e-7, "
@@ -58,7 +54,7 @@ def minmax_to_scale_offset(
     elif config.policy.has_property(QuantizationProperty.SYMMETRIC):
         val_range = 2 * float(max(abs(max_val), abs(min_val)))
         scale = val_range / (config.quant_max - config.quant_min)
-        if scale < scale_threshold and OBSERVER_WARNING:
+        if scale < scale_threshold:
             warning(
                 "Numeric instability detected: "
                 "ppq find there is a scale value < 1e-7, "

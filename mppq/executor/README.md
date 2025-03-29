@@ -120,7 +120,7 @@ PPQ 的执行引擎是专为量化计算图的执行而设计的————接�
 
 ### Quantize Delegate (量化代理函数)
 
-PPQ 允许你为网络中特定的 TQC 注册量化代理函数。这样你就可以注册自定义的量化处理逻辑，而非使用 PPQLinearQuantFunction 完成量化。
+PPQ 允许你为网络中特定的 TQC 注册量化代理函数。这样你就可以注册自定义的量化处理逻辑，而非使用 linear_fake_quant 完成量化。
 
     def register_quantize_delegate(
         self, config: TensorQuantizationConfig,

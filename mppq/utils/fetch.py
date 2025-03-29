@@ -1,3 +1,5 @@
+from typing import Optional
+
 import torch
 
 
@@ -17,7 +19,7 @@ def generate_indexer(
     """
 
     indexer = []
-    for i in range(num_of_fetches):
+    for _ in range(num_of_fetches):
         indexer.append(seed % num_of_elements)
         seed = (0x343FD * seed + 0x269EC3) % (2 << 31)
     return torch.tensor(indexer, dtype=torch.int32)
@@ -28,7 +30,7 @@ def generate_torch_indexer(num_of_fetches: int, num_of_elements: int) -> torch.T
 
 
 def tensor_random_fetch(
-    tensor: torch.Tensor, seed: int = None, num_of_fetches: int = 1024
+    tensor: torch.Tensor, seed: Optional[int] = None, num_of_fetches: int = 1024
 ) -> torch.Tensor:
     """Fetch some elements from tensor randomly. if a valid seed is given,
     elements will be sampled based on your seed, otherwise a random seed will
@@ -56,7 +58,7 @@ def tensor_random_fetch(
 def channel_random_fetch(
     tensor: torch.Tensor,
     fetchs_per_channel: int = 1024,
-    seed: int = None,
+    seed: Optional[int] = None,
     channel_axis: int = 0,
 ) -> torch.Tensor:
     """Fetch some elements from tensor randomly by each channel. if a valid
@@ -92,7 +94,7 @@ def channel_random_fetch(
 
 
 def batch_random_fetch(
-    tensor: torch.Tensor, fetches_per_batch: int = 1024, seed: int = None
+    tensor: torch.Tensor, fetches_per_batch: int = 1024, seed: Optional[int] = None
 ) -> torch.Tensor:
     """Fetch some elements from each sample in a batched tensor. if a valid
     seed is given, elements will be sampled based on your seed, otherwise a

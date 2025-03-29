@@ -1,4 +1,5 @@
 from collections import defaultdict
+from itertools import cycle
 from typing import Callable, Dict, Iterator, List, Optional, Union
 
 import torch
@@ -13,9 +14,13 @@ from mppq.ir.base.opdef import Operation, Variable
 from mppq.ir.base.quantize import QuantableOperation
 from mppq.ir.deploy import QuantableGraph
 from mppq.logger import warning
+from mppq.quantization.analyse.util import (
+    DetailedRecorder,
+    MeasurePrinter,
+    MeasureRecorder,
+    OutputRecorder,
+)
 from mppq.quantization.measure.norm import torch_snr_error
-
-from .util import DetailedRecorder, MeasurePrinter, MeasureRecorder, OutputRecorder
 
 
 def graphwise_error_analyse(  # noqa: C901, too complex
@@ -246,7 +251,7 @@ def statistical_analyse(  # noqa: C901
             er_skew = self.solve_skewness(x_er, er_mean, er_std).item()
             er_kurtosis = self.solve_kurtosis(x_er, er_mean, er_std).item()
             er_hist = (
-                torch.histc(x_er, bins=32, min=x_er.min(), max=x_er.max())
+                torch.histc(x_er, bins=32, min=x_er.min().item(), max=x_er.max().item())
                 .cpu()
                 .tolist()
             )
@@ -258,7 +263,7 @@ def statistical_analyse(  # noqa: C901
             qt_skew = self.solve_skewness(x_qt, qt_mean, qt_std).item()
             qt_kurtosis = self.solve_kurtosis(x_qt, qt_mean, qt_std).item()
             qt_hist = (
-                torch.histc(x_qt, bins=32, min=x_qt.min(), max=x_qt.max())
+                torch.histc(x_qt, bins=32, min=x_qt.min().item(), max=x_qt.max().item())
                 .cpu()
                 .tolist()
             )
@@ -270,7 +275,7 @@ def statistical_analyse(  # noqa: C901
             fp_skew = self.solve_skewness(x_fp, fp_mean, fp_std).item()
             fp_kurtosis = self.solve_kurtosis(x_fp, fp_mean, fp_std).item()
             fp_hist = (
-                torch.histc(x_fp, bins=32, min=x_fp.min(), max=x_fp.max())
+                torch.histc(x_fp, bins=32, min=x_fp.min().item(), max=x_fp.max().item())
                 .cpu()
                 .tolist()
             )
@@ -330,7 +335,7 @@ def statistical_analyse(  # noqa: C901
             interested_op.append(operation)
     if len(interested_op) == 0:
         print("Oops. you got nothing to analyse.")
-        return
+        return []
 
     # set up all hooks.
     hooks, caches = {}, {}
@@ -351,9 +356,9 @@ def statistical_analyse(  # noqa: C901
 
     # run for each quantable operations:
     for idx, batch in tqdm(
-        enumerate(dataloader),
+        enumerate(cycle(dataloader)),
         desc="Analysing Phrase 1",
-        total=(min(len(dataloader), steps)),
+        total=steps,
     ):
         if collate_fn is not None:
             batch = collate_fn(batch)
@@ -375,9 +380,9 @@ def statistical_analyse(  # noqa: C901
 
     # run for each quantable operations:
     for idx, batch in tqdm(
-        enumerate(dataloader),
+        enumerate(cycle(dataloader)),
         desc="Analysing Phrase 2",
-        total=(min(len(dataloader), steps)),
+        total=steps,
     ):
         if collate_fn is not None:
             batch = collate_fn(batch)

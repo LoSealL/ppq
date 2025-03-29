@@ -18,8 +18,8 @@ import torch
 from torch.cuda import synchronize
 from torch.utils.cpp_extension import load
 
-from .defs import SingletonMeta
-from .logger import warning
+from mppq.defs import SingletonMeta
+from mppq.logger import warning
 
 _URLS = [
     (

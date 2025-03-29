@@ -1,3 +1,5 @@
+from typing import List
+
 import torch
 
 from mppq.common import OBSERVER_FLOATING_MSE_FETCHES
@@ -7,10 +9,9 @@ from mppq.quant import (
     QuantizationStates,
     TensorQuantizationConfig,
 )
-from mppq.quantization.qfunction import PPQuantFunction
+from mppq.quantization.observer.base import OBSERVER_TABLE, BaseTensorObserver
 from mppq.utils.fetch import channel_random_fetch, tensor_random_fetch
-
-from .base import OBSERVER_TABLE, BaseTensorObserver
+from mppq.utils.qfunction import ppq_fake_quant
 
 
 @OBSERVER_TABLE.register("constant")
@@ -21,7 +22,7 @@ class ConstantObserver(BaseTensorObserver):
 
     def __init__(self, watch_on: Variable, quant_cfg: TensorQuantizationConfig):
         super().__init__(watch_on, quant_cfg)
-        self._value_shape = None
+        self._value_shape = []
         self._value_device = None
 
     @torch.no_grad()
@@ -92,7 +93,7 @@ class DirectMSEObserver(BaseTensorObserver):
 
         self._value_shape = None
         self._value_device = None
-        self._collector = []
+        self._collector: List[torch.Tensor] = []
         self._fetches = OBSERVER_FLOATING_MSE_FETCHES
 
     @torch.no_grad()
@@ -135,9 +136,8 @@ class DirectMSEObserver(BaseTensorObserver):
 
         self._quant_cfg.state = QuantizationStates.ACTIVATED
         if self._quant_cfg.policy.has_property(QuantizationProperty.PER_CHANNEL):
-
-            self._collector = torch.cat(self._collector, dim=0)
-            num_of_channel = self._collector.shape[0]
+            collector = torch.cat(self._collector, dim=0)
+            num_of_channel = collector.shape[0]
             scales = torch.ones(
                 size=[num_of_channel], dtype=torch.float32, device=device
             )
@@ -147,11 +147,11 @@ class DirectMSEObserver(BaseTensorObserver):
 
             losses = []
             for scale in scale_candidates:
-                self._quant_cfg._scale = scales * scale
-                self._quant_cfg._offset = offsets
+                self._quant_cfg.scale = scales * scale
+                self._quant_cfg.offset = offsets
 
-                qt = PPQuantFunction(self._collector, self._quant_cfg)
-                fp = self._collector
+                qt = ppq_fake_quant(collector, self._quant_cfg)
+                fp = collector
                 loss = torch.mean(torch.square(qt - fp), dim=-1, keepdim=True)
                 losses.append(loss)
 
@@ -159,25 +159,23 @@ class DirectMSEObserver(BaseTensorObserver):
             best_scales = []
             for index in scale_index.cpu():
                 best_scales.append(scale_candidates[index])
-            self._quant_cfg._scale = torch.tensor(best_scales).to(
-                self._collector.device
-            )
+            self._quant_cfg.scale = torch.tensor(best_scales).to(collector.device)
 
         elif self._quant_cfg.policy.has_property(QuantizationProperty.PER_TENSOR):
-            self._collector = torch.cat(self._collector, dim=0)
+            collector = torch.cat(self._collector, dim=0)
             scales = torch.ones(size=[1], dtype=torch.float32, device=device)
             offsets = torch.zeros(size=[1], dtype=torch.float32, device=device)
 
             losses = []
             for scale in scale_candidates:
-                self._quant_cfg._scale = scales * scale
-                self._quant_cfg._offset = offsets
+                self._quant_cfg.scale = scales * scale
+                self._quant_cfg.offset = offsets
 
-                qt = PPQuantFunction(self._collector, self._quant_cfg)
-                fp = self._collector
+                qt = ppq_fake_quant(collector, self._quant_cfg)
+                fp = collector
                 loss = torch.mean(torch.square(qt - fp))
 
                 losses.append((loss.item(), scale))
 
             best_scale = sorted(losses)[0][1]
-            self._quant_cfg._scale = scales * best_scale
+            self._quant_cfg.scale = scales * best_scale

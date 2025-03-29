@@ -20,6 +20,7 @@ classifiers = [
 ]
 description = "PPQ is an offline quantization tools"
 dependencies = [
+    "colorlog",
     "numpy",
     "onnx",
     "pooch",
@@ -41,6 +42,8 @@ include = ["mppq"]
 
 [tool.pyright]
 include = ["mppq"]
+# TODO: temporarily ignore this file
+exclude = ["mppq/executor/op/default.py"]
 
 [tool.flake8]
 ignore = ['E203', 'E231', 'E241', 'W503']

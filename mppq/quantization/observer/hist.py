@@ -20,10 +20,9 @@ from mppq.quant import (
     TensorQuantizationConfig,
 )
 from mppq.quantization.measure.statistic import torch_KL_divergence
+from mppq.quantization.observer.base import OBSERVER_TABLE, BaseTensorObserver
+from mppq.quantization.observer.min_max import TorchMinMaxObserver
 from mppq.utils.round import ppq_round_to_power_of_2
-
-from .base import OBSERVER_TABLE, BaseTensorObserver
-from .min_max import TorchMinMaxObserver
 
 
 @OBSERVER_TABLE.register("kl")

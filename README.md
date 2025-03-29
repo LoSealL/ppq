@@ -76,15 +76,13 @@ def init_quantize_config(self, operation: Operation) -> OperationQuantizationCon
     raise NotImplementedError
 
 @property
-@abstractmethod
-def quant_operation_types(self) -> Collection[str]:
-    r"""Return a collection of name that operations should be quantized."""
-    raise NotImplementedError
+def default_prequant_pipeline(self) -> QuantizationOptimizationPipeline:
+    r"""A simplified API to return a default quantization pipeline."""
+    return QuantizationOptimizationPipeline([])
 
 @property
-@abstractmethod
-def target_precision(self) -> TargetPrecision:
-    r"""Specify the desired quantize precision"""
+def default_quant_pipeline(self) -> QuantizationOptimizationPipeline:
+    r"""A simplified API to return a default quantization pipeline."""
     raise NotImplementedError
 ```
 

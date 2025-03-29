@@ -15,7 +15,7 @@ Currently support parser:
 from importlib import import_module
 from pathlib import Path
 
-from .base import EXPORTER, PARSER
+from mppq.frontend.base import EXPORTER, PARSER
 
 # auto scan directory and load
 for folder in Path(__file__).parent.iterdir():

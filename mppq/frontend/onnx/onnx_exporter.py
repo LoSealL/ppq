@@ -252,7 +252,7 @@ class OnnxExporter(GraphExporter):
     ):
         # if a valid config path is given, export quantization config to there.
         if config_path is not None:
-            self.export_quantization_config(config_path, graph)
+            self.dump_quantization_config(config_path, graph)
 
         size_threshold = 0 if save_as_external_data else 1024
         model_pb = self.export_graph(graph=graph)

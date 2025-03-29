@@ -18,10 +18,9 @@ from mppq.quant import (
     TensorQuantizationConfig,
 )
 from mppq.quantization.measure.statistic import torch_KL_divergence
+from mppq.quantization.observer.base import OBSERVER_TABLE
+from mppq.quantization.observer.hist import TorchHistObserver
 from mppq.utils.round import ppq_round_to_power_of_2
-
-from .base import OBSERVER_TABLE
-from .hist import TorchHistObserver
 
 
 @OBSERVER_TABLE.register("dbdc")

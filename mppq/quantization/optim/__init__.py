@@ -1,28 +1,37 @@
-from .adaround import AdaroundPass
-from .baking import ParameterBakingPass
-from .base import QuantizationOptimizationPipeline
-from .calibration import IsotoneCalibrationPass, RuntimeCalibrationPass
-from .equalization import (
+from mppq.quantization.optim.adaround import AdaroundPass
+from mppq.quantization.optim.baking import ParameterBakingPass
+from mppq.quantization.optim.base import QuantizationOptimizationPipeline
+from mppq.quantization.optim.calibration import (
+    IsotoneCalibrationPass,
+    RuntimeCalibrationPass,
+)
+from mppq.quantization.optim.equalization import (
     ActivationEqualizationPass,
     ChannelwiseSplitPass,
     LayerwiseEqualizationPass,
 )
-from .experimental import (
+from mppq.quantization.optim.experimental import (
     LearningToCalibPass,
     MatrixFactorizationPass,
-    TrainingBasedPass,
 )
-from .morph import GRUSplitPass, HorizontalLayerSplitPass
-from .parameters import ParameterQuantizePass, PassiveParameterQuantizePass
-from .refine import (
+from mppq.quantization.optim.morph import GRUSplitPass, HorizontalLayerSplitPass
+from mppq.quantization.optim.parameters import (
+    ParameterQuantizePass,
+    PassiveParameterQuantizePass,
+)
+from mppq.quantization.optim.refine import (
     MishFusionPass,
     QuantAlignmentPass,
     QuantizeFusionPass,
     QuantizeSimplifyPass,
     SwishFusionPass,
 )
-from .ssd import SSDEqualizationPass
-from .training import BiasCorrectionPass, LearnedStepSizePass, RoundTuningPass
+from mppq.quantization.optim.ssd import SSDEqualizationPass
+from mppq.quantization.optim.training import (
+    BiasCorrectionPass,
+    LearnedStepSizePass,
+    RoundTuningPass,
+)
 
 __all__ = [
     "ParameterBakingPass",
@@ -34,7 +43,6 @@ __all__ = [
     "LayerwiseEqualizationPass",
     "LearningToCalibPass",
     "MatrixFactorizationPass",
-    "TrainingBasedPass",
     "AdaroundPass",
     "GRUSplitPass",
     "HorizontalLayerSplitPass",

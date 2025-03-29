@@ -21,7 +21,7 @@ from mppq.ir.base.graph import BaseGraph, Operation
 from mppq.ir.base.quantize import QuantableOperation, QuantableVariable
 from mppq.ir.deploy import QuantableGraph
 from mppq.ir.morph import GraphReplacer
-from mppq.logger import info, warning
+from mppq.logger import error, info, warning
 from mppq.quant import OperationQuantizationConfig, QuantizationStates, TargetPrecision
 from mppq.quantization.optim.base import (
     OPTIM_ALGORITHMS,
@@ -42,8 +42,13 @@ class BaseQuantizer(metaclass=ABCMeta):
     2. quant_operation_types (property)
        所支持的量化算子类型
 
-    3. target_precision (property)
-       目标量化精度
+    可选择实现以下接口：
+
+    1. default_prequant_pipeline (property)
+       当未指定时，默认的量化前算法
+
+    2. default_quant_pipeline (property)
+       当未指定时，默认的量化算法
     """
 
     def __init__(self, graph: BaseGraph, verbose: bool = True) -> None:
@@ -91,14 +96,16 @@ class BaseQuantizer(metaclass=ABCMeta):
 
         # step - 1, prequant pipeline:
         # prequant pipeline will change your network structure and float value.
-        if prequant_settings is not None:
+        if prequant_settings is None:
+            prequant_pipeline = self.default_prequant_pipeline
+        else:
             prequant_pipeline = self._build_pipeline(prequant_settings)
-            prequant_pipeline.optimize(
-                graph=self._graph,
-                dataloader=calib_dataloader,
-                executor=executor,
-                verbose=self._verbose,
-            )
+        prequant_pipeline.optimize(
+            graph=self._graph,
+            dataloader=calib_dataloader,
+            executor=executor,
+            verbose=self._verbose,
+        )
 
         # step - 2, quantize all operations
         executor.load_graph(self._graph)
@@ -106,13 +113,9 @@ class BaseQuantizer(metaclass=ABCMeta):
 
         for op_name, operation in self._graph.operations.items():
             if operation.precision == TargetPrecision.UNSPECIFIED:
-                if operation.type in self.quant_operation_types:
-                    operation.precision = self.target_precision
-                else:
-                    operation.precision = TargetPrecision.FP32
-
-            if operation.precision not in {TargetPrecision.FP32, TargetPrecision.SOI}:
-                self._wrap_to_quantized_operation(op_name)
+                error(f"no precision info for node {op_name}")
+                raise ValueError("have you call a correct dispatcher?")
+            self._wrap_to_quantized_operation(op_name)
 
         # quantize operation will modify network structure
         # it is necessary calling self._executor before further execution
@@ -137,9 +140,7 @@ class BaseQuantizer(metaclass=ABCMeta):
             info("Network Quantization Finished.")
         return self._graph
 
-    def _wrap_to_quantized_operation(
-        self, op_name: str, precision: Optional[TargetPrecision] = None
-    ) -> Operation:
+    def _wrap_to_quantized_operation(self, op_name: str) -> Operation:
         if op_name not in self._graph.operations:
             raise KeyError(
                 f"Can not find op {op_name} in your graph, check operation name again."
@@ -149,12 +150,7 @@ class BaseQuantizer(metaclass=ABCMeta):
             warning(f"Operation {op_name} has been quantized.")
             return converting_operation
 
-        # override platform with calling parameter.
-        if precision is not None:
-            converting_operation.precision = precision
-        else:
-            precision = converting_operation.precision
-
+        precision = converting_operation.precision
         if precision in {TargetPrecision.FP32, TargetPrecision.SOI}:
             return self._graph.operations[op_name]
 
@@ -194,16 +190,14 @@ class BaseQuantizer(metaclass=ABCMeta):
         raise NotImplementedError
 
     @property
-    @abstractmethod
     def quant_operation_types(self) -> Collection[str]:
         r"""Return a collection of name that operations should be quantized."""
-        raise NotImplementedError
+        return set()  # all operations are quantized by default.
 
     @property
-    @abstractmethod
-    def target_precision(self) -> TargetPrecision:
-        r"""Specify the desired quantize precision"""
-        raise NotImplementedError
+    def default_prequant_pipeline(self) -> QuantizationOptimizationPipeline:
+        r"""A simplified API to return a default quantization pipeline."""
+        return QuantizationOptimizationPipeline([])
 
     @property
     def default_quant_pipeline(self) -> QuantizationOptimizationPipeline:

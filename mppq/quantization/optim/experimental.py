@@ -1,10 +1,9 @@
-from typing import Callable, Iterable, List
+from typing import Any, Callable, Iterable, List, Optional
 
 import torch
 from torch.cuda import empty_cache
 from tqdm import tqdm
 
-from mppq.common import OPTIM_ADVOPT_GRAPH_MAXDEPTH
 from mppq.defs import empty_ppq_cache
 from mppq.executor import BaseGraphExecutor, TorchExecutor
 from mppq.ir.base.graph import BaseGraph
@@ -18,11 +17,9 @@ from mppq.quantization.algorithm.training import (
     TrainableBlock,
 )
 from mppq.quantization.measure import torch_snr_error
-from mppq.quantization.optim.base import QuantizationOptimizationPass
+from mppq.quantization.optim.base import OPTIM_ALGORITHMS, QuantizationOptimizationPass
+from mppq.quantization.optim.training import TrainingBasedPass
 from mppq.utils.ema import EMARecorder
-
-from .base import OPTIM_ALGORITHMS
-from .training import TrainingBasedPass
 
 
 @OPTIM_ALGORITHMS.register()
@@ -40,10 +37,14 @@ class LearningToCalibPass(TrainingBasedPass):
     This pass will make all your quantization range as trainable, and learn to quantize
         your network with sampling methods.
 
-    ATTENTION: YOU SHALL USE THIS FUNCTION AFTER ACTIVATIONS HAVE BEEN CORRECTLY CALIBRATED
+    ATTENTION:
+
+        YOU SHALL USE THIS FUNCTION AFTER ACTIVATIONS HAVE BEEN CORRECTLY CALIBRATED
         SINCE THIS FUNCTION NEEDS A SCALE AND OFFSET AS INITIALIZED VALUE.
 
-    ATTENTION: ONLY CONFIGURATION WITH STATE "ACTIVATED" WILL BE TUNED VIA THIS FUNCTION.
+    ATTENTION:
+
+        ONLY CONFIGURATION WITH STATE "ACTIVATED" WILL BE TUNED VIA THIS FUNCTION.
     """
 
     def __init__(
@@ -70,14 +71,13 @@ class LearningToCalibPass(TrainingBasedPass):
         executor: TorchExecutor,
         block: TrainableBlock,
         dataloader: Iterable,
-        collate_fn: Callable,
+        collate_fn: Optional[Callable] = None,
     ):
-
         # create trainable delegators for each parameter.
         delegators = []
         for operation in block.rps:
             if isinstance(operation, QuantableOperation):
-                for cfg, var in operation.config_with_variable:
+                for cfg, _ in operation.config_with_variable:
                     if cfg.state == QuantizationStates.ACTIVATED:
                         delegators.append(BanditDelegator(arms=self.arms, config=cfg))
         delegators = [d for d in delegators if isinstance(d, BanditDelegator)]
@@ -134,10 +134,9 @@ class LearningToCalibPass(TrainingBasedPass):
         output_name: str,
         dataloader: Iterable,
         executor: BaseGraphExecutor,
-        collate_fn: Callable,
-    ) -> List[List[torch.Tensor]]:
-
-        output_collector = []
+        collate_fn: Optional[Callable] = None,
+    ) -> List[torch.Tensor]:
+        output_collector: List[torch.Tensor] = []
         for data in dataloader:
             if collate_fn is not None:
                 data = collate_fn(data)
@@ -148,12 +147,14 @@ class LearningToCalibPass(TrainingBasedPass):
     def optimize(
         self,
         graph: BaseGraph,
-        dataloader: Iterable,
-        executor: TorchExecutor,
-        collate_fn: Callable,
+        dataloader: Optional[Iterable] = None,
+        executor: Optional[BaseGraphExecutor] = None,
+        collate_fn: Optional[Callable[[Any], Any]] = None,
+        optim_advopt_graph_maxdepth: int = 4,
         **kwargs,
     ) -> None:
-
+        assert isinstance(executor, TorchExecutor)
+        assert dataloader is not None
         block_builder = BlockBuilder(graph=graph, topo_order=executor._executing_order)
 
         # check if there is any baked value inside your graph
@@ -165,8 +166,8 @@ class LearningToCalibPass(TrainingBasedPass):
                         QuantizationStates.PASSIVE_BAKED,
                     }:
                         raise PermissionError(
-                            "Can not apply advanced optimization pass when weight value is baked. "
-                            f"Variable {var.name} has a baked value."
+                            "Can not apply advanced optimization pass when weight "
+                            f"value is baked. Variable {var.name} has a baked value."
                         )
 
         # build all blocks, drop overlapped layers.
@@ -174,7 +175,7 @@ class LearningToCalibPass(TrainingBasedPass):
         for op in graph.operations.values():
             if op in visited:
                 continue
-            block = block_builder.build(op, limit=OPTIM_ADVOPT_GRAPH_MAXDEPTH)
+            block = block_builder.build(op, limit=optim_advopt_graph_maxdepth)
 
             # PATCH 20220317 drop block that has no computing op.
             if not any([rp.is_computing_op for rp in block.rps]):
@@ -323,14 +324,13 @@ class MatrixFactorizationPass(QuantizationOptimizationPass):
         u, s, v = torch.svd(w)
         a = torch.matmul(u, torch.diag(torch.sqrt(s)))
         b = torch.matmul(torch.diag(torch.sqrt(s)), v.transpose(0, 1))
-        print(a.max(), b.max(), w.max())
         return a, b
 
     def optimize(
         self,
         graph: BaseGraph,
-        dataloader: Iterable,
-        executor: BaseGraphExecutor,
+        dataloader: Optional[Iterable] = None,
+        executor: Optional[BaseGraphExecutor] = None,
         **kwargs,
     ) -> None:
         splitting_layers = []
@@ -359,26 +359,28 @@ class MatrixFactorizationPass(QuantizationOptimizationPass):
                     a, b = self.train_for_factorization(w)
                 else:
                     raise ValueError(
-                        f"Invalid method {self.method}, only support training and svd now."
+                        f"Invalid method {self.method}, "
+                        "only support training and svd now."
                     )
                 a = a.transpose(0, 1)
                 b = b.transpose(0, 1)
             elif operation.type == "Conv":
                 if operation.attributes["kernel_shape"] != [1, 1]:
                     raise PermissionError(
-                        f"Can not split layer {operation.name}, cause it kernel shape is not [1, 1]"
+                        f"Can not split layer {operation.name}, "
+                        "cause it kernel shape is not [1, 1]"
                     )
                 w = operation.parameters[0].value
                 assert isinstance(w, torch.Tensor)
                 w = w.squeeze(-1).squeeze(-1).transpose(0, 1)
-                print(w.shape)
                 if self.method == "svd":
                     a, b = self.svd_for_factorization(w)
                 elif self.method == "training":
                     a, b = self.train_for_factorization(w)
                 else:
                     raise ValueError(
-                        f"Invalid method {self.method}, only support training and svd now."
+                        f"Invalid method {self.method}, "
+                        "only support training and svd now."
                     )
                 a = a.transpose(0, 1).unsqueeze(-1).unsqueeze(-1)
                 b = b.transpose(0, 1).unsqueeze(-1).unsqueeze(-1)

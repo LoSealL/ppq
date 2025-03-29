@@ -1,11 +1,10 @@
 import random
 from random import randint
-from typing import Iterable, List, Tuple
+from typing import List, Optional, Sequence, Tuple
 
 import torch
 from torch.autograd import Function
 
-from mppq.common import NUM_OF_CHECKPOINT_FETCHS
 from mppq.executor import TorchQuantizeDelegator
 from mppq.ffi import CUDA, ENABLE_CUDA_KERNEL
 from mppq.ir.base.graph import BaseGraph
@@ -17,8 +16,8 @@ from mppq.quant import (
     RoundingPolicy,
     TensorQuantizationConfig,
 )
-from mppq.quantization.qfunction import PPQuantFunction
 from mppq.utils.fetch import batch_random_fetch
+from mppq.utils.qfunction import ppq_fake_quant
 from mppq.utils.round import ppq_tensor_round
 
 
@@ -52,11 +51,11 @@ class CuLSQ_LT(Function):
         return quantized
 
     @staticmethod
-    def backward(ctx, dy: torch.Tensor):
+    def backward(ctx, *grad_outputs: torch.Tensor):
         if not ENABLE_CUDA_KERNEL.USING_CUDA_KERNEL:
             raise PermissionError("Can not invoke CuLSQ, Cuda kernel is not compiled.")
 
-        dy = dy.contiguous()
+        dy = grad_outputs[0].contiguous()
         tensor, scales, offsets = ctx.saved_tensors
         quant_min, quant_max, rounding = ctx._quant_params
         dx, ds = CUDA.LinearQuantize_T_B(
@@ -98,13 +97,13 @@ class CuLSQ_LC(Function):
         return quantized
 
     @staticmethod
-    def backward(ctx, dy: torch.Tensor):
+    def backward(ctx, *grad_outputs: torch.Tensor):
         if not ENABLE_CUDA_KERNEL.USING_CUDA_KERNEL:
             raise PermissionError(
                 "Can not invoke CuLSQ, ENABLE_CUDA_KERNEL.USING_CUDA_KERNEL = False."
             )
 
-        dy = dy.contiguous()
+        dy = grad_outputs[0].contiguous()
         tensor, scales, offsets = ctx.saved_tensors
         quant_min, quant_max, channel_axis, rounding = ctx._quant_params
         dx, ds = CUDA.LinearQuantize_C_B(
@@ -117,18 +116,22 @@ class FinetuneCheckPoint:
     """Finetune Check Point stores training loss for variables. It bounds to a
     specific variable, collects and stores its fp32 value as a reference.
 
-    ATTENTION: collecting fp32 value might cause GPU memory overflow, so we use a seed to
-        sample only a part of fp32 value instead(randomly pick about 2000 values from given tensor).
+    ATTENTION:
 
-    Finetune Check Point maintains a seed for data collecting, a best loss, and a reference values.
+        collecting fp32 value might cause GPU memory overflow, so we use a seed to
+        sample only a part of fp32 value instead(randomly pick about 2000 values from
+        given tensor).
+
+    Finetune Check Point maintains a seed for data collecting, a best loss, and a
+    reference values.
     """
 
     def __init__(
         self,
         variable: str,
         random_fetch: bool = True,
-        seed: int = None,
-        fetches: int = NUM_OF_CHECKPOINT_FETCHS,
+        seed: Optional[int] = None,
+        fetches: int = 4096,
     ) -> None:
         if seed is None:
             seed = randint(0, 0xFFFFFFFF)
@@ -167,7 +170,7 @@ class RandomMemDataset:
     """A very little helper class for randomly pick data samples from your
     dataset."""
 
-    def __init__(self, data: Iterable) -> None:
+    def __init__(self, data: Sequence) -> None:
         self._data = data
         self._num_of_batchs = len(data)
 
@@ -221,7 +224,8 @@ class TrainableBlock:
 
     Formal definition of TrainableBlock can be found with following code of BlockBuilder
 
-    Minimal TrainableBlock is {p, p, {p}}, this block have only one node as both input and output.
+    Minimal TrainableBlock is {p, p, {p}}, this block have only one node as both input
+    and output.
     """
 
     def __init__(self, sp: Operation, ep: Operation, rps: List[Operation]) -> None:
@@ -252,9 +256,9 @@ class BlockBuilder:
         if sp == ep:
             return TrainableBlock(sp=sp, ep=ep, rps=[sp])
         rps = self.search_engine.opset_matching(
-            sp_expr=lambda x: x == sp,
+            sp_expr=lambda op: op == sp,
             rp_expr=lambda x, y: True,
-            ep_expr=lambda x: x == ep,
+            ep_expr=lambda op: op == ep,
             direction="down",
         )
         rps = [(self.op_orders.index(op), op) for op in rps]
@@ -280,10 +284,12 @@ class BlockBuilder:
             3. M contains and only contains nodes on all paths from S to E.
 
         Lemma:(算法引理)
-            1. 如果 s 的后继节点只有一个 e, 且 e 的输入只有一个，那么 {s, e, {s, e}} 构成满足定义的子图，从 s 寻找子图的任务可以递归由 e 完成
+            1. 如果 s 的后继节点只有一个 e, 且 e 的输入只有一个，那么 {s, e, {s, e}} 构成满足定义的子图，
+               从 s 寻找子图的任务可以递归由 e 完成
             2. 如果 s 的后继存在多个节点，则只存在两种情况:
                 2.1 从 s 出发，最大子图即为 {s, s, {s}}。
-                2.2 从 s 出发，可以构成子图 {s, e, R} (e!=s), 那么R中必须含有一个节点接收多个输入。（可用反证法证明，略）
+                2.2 从 s 出发，可以构成子图 {s, e, R} (e!=s), 那么R中必须含有一个节点接收多个输入。
+                （可用反证法证明，略）
 
         Algorithm:(算法)
             Build(s, d):
@@ -324,7 +330,8 @@ class BlockBuilder:
                 for down_op in self.graph.get_downstream_operations(iter_operation):
                     least_first_queue.push(self.depth[down_op], down_op)
 
-            # if least_first_queue is empty, it means we can not find an blocking ep from given sp.
+            # if least_first_queue is empty, it means we can not find an blocking
+            # ep from given sp.
             return None
 
         def _find_coherent_ep(op: Operation):
@@ -453,7 +460,6 @@ class LSQDelegator(TorchQuantizeDelegator):
         self.scale_backup = None
         self.offset_backup = None
         self.param_backup = None
-        pass  # do nothing here.
 
     def __call__(
         self, tensor: torch.Tensor, config: TensorQuantizationConfig
@@ -461,7 +467,7 @@ class LSQDelegator(TorchQuantizeDelegator):
         if tensor.is_cuda and ENABLE_CUDA_KERNEL.USING_CUDA_KERNEL:
             if config.policy.has_property(QuantizationProperty.LINEAR):
                 if config.policy.has_property(QuantizationProperty.PER_CHANNEL):
-                    return CuLSQ_LC.apply(
+                    qtensor = CuLSQ_LC.apply(
                         tensor,
                         config.scale,
                         config.offset,
@@ -470,8 +476,8 @@ class LSQDelegator(TorchQuantizeDelegator):
                         config.quant_max,
                         config.rounding,
                     )
-                elif config.policy.has_property(QuantizationProperty.PER_TENSOR):
-                    return CuLSQ_LT.apply(
+                else:  # config.policy.has_property(QuantizationProperty.PER_TENSOR)
+                    qtensor = CuLSQ_LT.apply(
                         tensor,
                         config.scale,
                         config.offset,
@@ -479,11 +485,13 @@ class LSQDelegator(TorchQuantizeDelegator):
                         config.quant_max,
                         config.rounding,
                     )
-
             elif config.policy.has_property(QuantizationProperty.FLOATING):
                 # For floating quantization, scale is not trainable.
-                return PPQuantFunction(tensor=tensor, config=config)
-
+                qtensor = ppq_fake_quant(tensor=tensor, config=config)
+            else:
+                raise ValueError(f"Unsupported quantization policy {config.policy}")
+            assert isinstance(qtensor, torch.Tensor)
+            return qtensor
         else:
             scale, offset = config.scale, config.offset
 
@@ -505,94 +513,6 @@ class LSQDelegator(TorchQuantizeDelegator):
             )
             quantized = torch.clamp(quantized, config.quant_min, config.quant_max)
             quantized = (quantized - offset.detach()) * scale
-            quantized = quantized
-            return quantized
-
-
-class RoundTuningDelegator(TorchQuantizeDelegator):
-    def __init__(
-        self,
-        config: TensorQuantizationConfig,
-        var: Variable,
-    ) -> None:
-        self.config = config
-        self.is_parameter = var.is_parameter
-        self.var = var
-        self.policy = config.policy
-        self.tunable_round = self.var.value
-
-    def trainable_tensors(self) -> List[torch.Tensor]:
-        params = []
-        if self.is_parameter:
-            params.append(self.var.value)
-        return params
-
-    def withdraw(self) -> None:
-        with torch.no_grad():
-            if self.scale_backup is not None:
-                self.config.scale.copy_(self.scale_backup)
-            if self.offset_backup is not None:
-                self.config.offset.copy_(self.offset_backup)
-            if self.param_backup is not None:
-                self.var.value.copy_(self.param_backup)
-
-    def finalize(self) -> None:
-        self.scale_backup = None
-        self.offset_backup = None
-        self.param_backup = None
-        pass  # do nothing here.
-
-    def __call__(
-        self, tensor: torch.Tensor, config: TensorQuantizationConfig
-    ) -> torch.Tensor:
-        if tensor.is_cuda and ENABLE_CUDA_KERNEL.USING_CUDA_KERNEL:
-            if config.policy.has_property(QuantizationProperty.LINEAR):
-                if config.policy.has_property(QuantizationProperty.PER_CHANNEL):
-                    return CuLSQ_LC.apply(
-                        tensor,
-                        config.scale,
-                        config.offset,
-                        config.channel_axis,
-                        config.quant_min,
-                        config.quant_max,
-                        config.rounding,
-                    )
-                elif config.policy.has_property(QuantizationProperty.PER_TENSOR):
-                    return CuLSQ_LT.apply(
-                        tensor,
-                        config.scale,
-                        config.offset,
-                        config.quant_min,
-                        config.quant_max,
-                        config.rounding,
-                    )
-
-            elif config.policy.has_property(QuantizationProperty.FLOATING):
-                # For floating quantization, scale is not trainable.
-                return PPQuantFunction(tensor=tensor, config=config)
-
-        else:
-            scale, offset = config.scale, config.offset
-
-            if self.is_scale_trainable:
-                scale = scale.abs()
-                grad_scale = 1 / (tensor.numel() * config.quant_max) ** 0.5
-                scale = scale * grad_scale + (scale - scale * grad_scale).detach()
-
-            if config.policy.has_property(QuantizationProperty.PER_CHANNEL):
-                shape = [
-                    1 if axis != config.channel_axis else -1
-                    for axis in range(tensor.ndim)
-                ]
-                scale = scale.view(shape)
-                offset = offset.view(shape)
-
-            quantized = (
-                ppq_tensor_round((tensor / scale), config.rounding) + offset.detach()
-            )
-            quantized = torch.clamp(quantized, config.quant_min, config.quant_max)
-            quantized = (quantized - offset.detach()) * scale
-            quantized = quantized
             return quantized
 
 
@@ -607,7 +527,6 @@ class TensorwiseRoundTuningImpl(Function):
         quant_max: int,
         rounding: torch.Tensor,
     ) -> torch.Tensor:
-
         scale, offset = scale.to(tensor.device), offset.to(tensor.device)
         tensor = (tensor / scale) + (rounding > 0.5) + offset
         tensor = torch.clamp(tensor, quant_min, quant_max)
@@ -615,8 +534,8 @@ class TensorwiseRoundTuningImpl(Function):
         return tensor
 
     @staticmethod
-    def backward(ctx, dy: torch.Tensor):
-        return dy, None, None, None, None, dy
+    def backward(ctx, *dy: torch.Tensor):
+        return dy[0], None, None, None, None, dy[0]
 
 
 class ChannelwiseRoundTuningImpl(Function):
@@ -631,7 +550,6 @@ class ChannelwiseRoundTuningImpl(Function):
         quant_max: int,
         rounding: torch.Tensor,
     ) -> torch.Tensor:
-
         scale, offset = scale.to(tensor.device), offset.to(tensor.device)
         # generate a shape that likes [1, 1, -1, 1], the only -1 is at channel axe.
         shape = [1 if axis != channel_axis else -1 for axis in range(tensor.ndim)]
@@ -643,16 +561,12 @@ class ChannelwiseRoundTuningImpl(Function):
         return tensor
 
     @staticmethod
-    def backward(ctx, dy: torch.Tensor):
-        return dy, None, None, None, None, None, dy
+    def backward(ctx, *dy: torch.Tensor):
+        return dy[0], None, None, None, None, None, dy[0]
 
 
 class RoundTruningDelegator(TorchQuantizeDelegator):
-    def __init__(
-        self,
-        var: Variable,
-        config: TensorQuantizationConfig,
-    ) -> None:
+    def __init__(self, var: Variable, config: TensorQuantizationConfig):
         self.config = config
         self.var = var
         self.is_parameter = self.var.is_parameter
@@ -710,7 +624,7 @@ class RoundTruningDelegator(TorchQuantizeDelegator):
         self, tensor: torch.Tensor, config: TensorQuantizationConfig
     ) -> torch.Tensor:
         if config.policy.has_property(QuantizationProperty.PER_TENSOR):
-            return TensorwiseRoundTuningImpl.apply(
+            qtensor = TensorwiseRoundTuningImpl.apply(
                 tensor,
                 config.scale,
                 config.offset,
@@ -718,8 +632,8 @@ class RoundTruningDelegator(TorchQuantizeDelegator):
                 config.quant_max,
                 self._rounding,
             )
-        elif config.policy.has_property(QuantizationProperty.PER_CHANNEL):
-            return ChannelwiseRoundTuningImpl.apply(
+        else:  # config.policy.has_property(QuantizationProperty.PER_CHANNEL)
+            qtensor = ChannelwiseRoundTuningImpl.apply(
                 tensor,
                 config.scale,
                 config.offset,
@@ -728,5 +642,5 @@ class RoundTruningDelegator(TorchQuantizeDelegator):
                 config.quant_max,
                 self._rounding,
             )
-        else:
-            raise Exception("Oops, this should not happen.")
+        assert isinstance(qtensor, torch.Tensor)
+        return qtensor

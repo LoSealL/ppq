@@ -10,8 +10,8 @@ from typing import Any, Dict, Iterator, List, Optional
 
 import torch
 
-from .common import EXPORT_OVERLAPPED_CONFIG
-from .storage import Serializable
+from mppq.common import EXPORT_OVERLAPPED_CONFIG
+from mppq.storage import Serializable
 
 
 class QuantVisibility(Enum):
@@ -394,7 +394,7 @@ class TensorQuantizationConfig(Serializable):
         exponent_bits: int = 0,
         scale: Optional[torch.Tensor] = None,
         offset: Optional[torch.Tensor] = None,
-        observer_algorithm: Optional[str] = None,
+        observer_algorithm: str = "minmax",
         detail: Optional[Any] = None,
         channel_axis: int = 0,
         visibility: QuantVisibility = QuantVisibility.EXPORT_WHEN_ACTIVE,
@@ -420,7 +420,7 @@ class TensorQuantizationConfig(Serializable):
             offset (Any): Quantization offset for ASYMMETRICAL quantization policy,
                 it will be set as 0 in SYMMETRICAL quantization schema.
             observer_algorithm (str): A string represents an observing algorithm for
-                this tensor. PPQ support 'kl', 'minmax' observer now.
+                this tensor.
             detail (Any, optional): Only used by PPQ internal logic, detail is used to
                 store some internal data, you are not supposed to use it.
             channel_axis (int, optional): Only used in PER_CHANNEL quantization,
@@ -465,9 +465,6 @@ class TensorQuantizationConfig(Serializable):
     def can_export(self, export_overlapped: bool = EXPORT_OVERLAPPED_CONFIG) -> bool:
         if self.visibility == QuantVisibility.INTERNAL:
             return False
-        type_check = isinstance(self.scale, torch.Tensor) and isinstance(
-            self.offset, torch.Tensor
-        )
         valid_states = {QuantizationStates.BAKED, QuantizationStates.PASSIVE_BAKED}
 
         if export_overlapped:
@@ -477,7 +474,7 @@ class TensorQuantizationConfig(Serializable):
         )
 
         if state_check or self.visibility == QuantVisibility.FORCE_EXPORT:
-            if type_check:
+            if self.is_observed():
                 return True
         return False
 
@@ -604,24 +601,35 @@ class TensorQuantizationConfig(Serializable):
             QuantizationStates.PASSIVE_INIT,
         }
 
+    def is_observed(self) -> bool:
+        """Whether scale is initialized or not."""
+        try:
+            return self.scale.numel() > 0
+        except ValueError:
+            return False
+
     @property
-    def scale(self) -> None | torch.Tensor:
+    def scale(self) -> torch.Tensor:
         """Get Quantization Scale of this TQC.
 
         If current TQC is dominated by other, return father TQC's scale instead.
         """
         if self.dominated_by == self:
+            if self._scale is None:
+                raise ValueError("scale is not initialized.")
             return self._scale
         else:
             return self.dominated_by.scale
 
     @property
-    def offset(self) -> None | torch.Tensor:
+    def offset(self) -> torch.Tensor:
         """Get Quantization Offset of this TQC.
 
         If current TQC is dominated by other, return father TQC's offset instead.
         """
         if self.dominated_by == self:
+            if self._offset is None:
+                raise ValueError("offset is not initialized.")
             return self._offset
         else:
             return self.dominated_by.offset

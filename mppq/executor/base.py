@@ -69,21 +69,16 @@ class RuntimeHook:
         return list(outputs)
 
 
-class QuantOPRuntimeHook(RuntimeHook):
-    """QuantOPRuntimeHook is an abstract class designed for executor
-    customizing.
+class QuantRuntimeHook(RuntimeHook):
+    """QuantRuntimeHook is an abstract class designed for executor customizing."""
 
-    Args:
-        metaclass ([type], optional): [description]. Defaults to ABCMeta.
-    """
-
-    def __init__(self, operation: QuantableOperation, **kwargs) -> None:
+    def __init__(self, operation: Operation, **kwargs) -> None:
         if not isinstance(operation, QuantableOperation):
             raise TypeError(
                 "You are trying to bind a QuantRuntimeHook "
                 f"to a non-quantized operation {operation}."
             )
-        super().__init__(operation)
+        super().__init__(operation, **kwargs)
 
     def pre_forward_hook(
         self,
@@ -119,6 +114,10 @@ class BaseGraphExecutor(metaclass=ABCMeta):
     ) -> None:
         self.load_graph(graph=graph)
         self.target_platform = target_platform
+
+    @property
+    def graph(self) -> BaseGraph:
+        return self._graph
 
     def load_graph(self, graph: BaseGraph):
         self._graph = graph

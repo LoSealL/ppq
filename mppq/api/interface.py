@@ -8,7 +8,7 @@ Rewrite PPQ APIs.
 """
 
 import os
-from typing import Any, Collection, Dict, Optional
+from typing import Any, Callable, Collection, Dict, Iterable, Optional, Sequence
 
 from onnx import ModelProto
 
@@ -17,24 +17,18 @@ from mppq.api.extension import (
     _PLATFORM_TO_PARSER_,
     _PLATFORM_TO_QUANTIZER_,
 )
-from mppq.common import (
-    DEFAULT_QUANTIZE_OP,
-    FORMATTER_FORMAT_CONSTANT_INPUT,
-    FORMATTER_FUSE_BIAS_ADD,
-    FORMATTER_FUSE_BN,
-    FORMATTER_REMOVE_IDENTITY,
-    FORMATTER_REMOVE_ISOLATED,
-    FORMATTER_REPLACE_BN_TO_CONV,
-)
+from mppq.common import DEFAULT_QUANTIZE_OP
 from mppq.dispatcher import DISPATCHER_TABLE
 from mppq.dispatcher.base import GraphDispatcher
 from mppq.dispatcher.scope import IgnoredScope
+from mppq.executor.base import BaseGraphExecutor, GraphInput
 from mppq.frontend import EXPORTER, PARSER
 from mppq.ir.base.command import GraphCommand, GraphCommandType
 from mppq.ir.base.graph import BaseGraph, GraphBuilder, GraphExporter
 from mppq.ir.morph import GraphFormatter, GraphMerger, GraphReplacer
 from mppq.quant import TargetPrecision
 from mppq.quantizer import QUANTIZER, BaseQuantizer
+from mppq.quantizer.base import QuantizationOptimizationPass
 
 
 def load_graph(graph_file: Any, parser: GraphBuilder) -> BaseGraph:
@@ -92,7 +86,15 @@ def export_onnx_graph(graph: BaseGraph, f: str | os.PathLike):
     export_graph(graph, f, exporter=exporter)
 
 
-def format_graph(graph: BaseGraph) -> BaseGraph:
+def format_graph(
+    graph: BaseGraph,
+    format_constant_input: bool = True,
+    fuse_bias_add: bool = True,
+    fuse_bn: bool = True,
+    replace_bn_to_conv: bool = True,
+    remove_identity: bool = True,
+    remove_isolated: bool = True,
+) -> BaseGraph:
     r"""这个函数对计算图进行预处理工作，其主要内容是将计算图的格式进行统一。
     这个函数将会统一 cast, slice, parameter, constant 算子的格式，
     并且执行有关 batchnorm 的合并工作.
@@ -101,22 +103,35 @@ def format_graph(graph: BaseGraph) -> BaseGraph:
     在 PPQ 中，我们不希望出现 Batchnorm 算子，所有 Batchnorm 将被合并
     在 PPQ 中，我们不希望出现权重共享的算子，所有被共享的权重将被复制分裂成多份
     在 PPQ 中，我们不希望出现孤立算子，所有孤立算子将被移除
+
+    # 读取 Onnx 图时，将图中所有以 Constant 节点作为输入的变量转换为 Parameter Variable
+    FORMATTER_FORMAT_CONSTANT_INPUT
+    # 读取 Onnx 图时，合并图中的 Bias add 节点(Conv, ConvTranspose, Gemm)
+    FORMATTER_FUSE_BIAS_ADD
+    # 读取 Onnx 图时，合并图中的 Batchnorm 节点(Conv, ConvTranspose, Gemm)
+    FORMATTER_FUSE_BN
+    # 读取 Onnx 图时，将单独的 Batchnorm 替换为卷积
+    FORMATTER_REPLACE_BN_TO_CONV
+    # 读取 Onnx 图时，移除图中的 Identity 节点
+    FORMATTER_REMOVE_IDENTITY
+    # 读取 Onnx 图时，移除图中的孤立节点
+    FORMATTER_REMOVE_ISOLATED
     """
 
     # do graph level optimization
     formatter = GraphReplacer(GraphFormatter(GraphMerger(graph)))
-    if FORMATTER_FORMAT_CONSTANT_INPUT:
+    if format_constant_input:
         formatter(GraphCommand(GraphCommandType.FORMAT_CONSTANT_INPUT))
     formatter(GraphCommand(GraphCommandType.CONVERT_TO_TENSOR))
     formatter(GraphCommand(GraphCommandType.FORMAT_PARAMETERS))
 
-    if FORMATTER_FUSE_BIAS_ADD:
+    if fuse_bias_add:
         formatter(GraphCommand(GraphCommandType.FUSE_BIAS_ADD))
 
-    if FORMATTER_FUSE_BN:
+    if fuse_bn:
         formatter(GraphCommand(GraphCommandType.FUSE_BN))
 
-    if FORMATTER_REPLACE_BN_TO_CONV:
+    if replace_bn_to_conv:
         formatter(GraphCommand(GraphCommandType.REPLACE_BATCHNORM_TO_CONV))
 
     formatter(GraphCommand(GraphCommandType.FORMAT_CAST))
@@ -125,10 +140,10 @@ def format_graph(graph: BaseGraph) -> BaseGraph:
     formatter(GraphCommand(GraphCommandType.FORMAT_PAD))
     formatter(GraphCommand(GraphCommandType.FORMAT_RESIZE))
 
-    if FORMATTER_REMOVE_IDENTITY:
+    if remove_identity:
         formatter(GraphCommand(GraphCommandType.REMOVE_IDENTITY))
 
-    if FORMATTER_REMOVE_ISOLATED:
+    if remove_isolated:
         formatter(GraphCommand(GraphCommandType.DELETE_ISOLATED))
 
     return graph
@@ -140,6 +155,7 @@ def dispatch_graph(
     dispatcher: Optional[str | GraphDispatcher] = None,
     dispatching_override: Optional[Dict[str, TargetPrecision]] = None,
     ignored_scope: Optional[list | IgnoredScope] = None,
+    quant_precision: TargetPrecision = TargetPrecision.INT8,
     **kwargs,
 ) -> BaseGraph:
     """Override the graph dispatching of PPQ. This function split graph into pieces.
@@ -172,12 +188,13 @@ def dispatch_graph(
                 f"str or GraphDispatcher, however {type(dispatcher)} was given."
             )
     assert isinstance(dispatcher, GraphDispatcher)
+    if not quantize_operations:
+        quantize_operations = DEFAULT_QUANTIZE_OP
 
     dispatching_table = dispatcher.dispatch(
         graph=graph,
         quant_types=quantize_operations,
-        # MUST BE UNSPECIFIED, let Quantizer to make the decision
-        quant_platform=TargetPrecision.UNSPECIFIED,
+        quant_precision=quant_precision,
         fp32_platform=TargetPrecision.FP32,
         soi_platform=TargetPrecision.SOI,
         **kwargs,
@@ -225,6 +242,7 @@ def load_quantizer(
     dispatcher: Optional[str] = None,
     dispatching_override: Optional[Dict[str, TargetPrecision]] = None,
     ignored_scope: Optional[list | IgnoredScope] = None,
+    quant_precision: TargetPrecision = TargetPrecision.INT8,
     **kwargs,
 ) -> BaseQuantizer:
     r"""Quantize the graph to target platform.
@@ -251,7 +269,61 @@ def load_quantizer(
         dispatcher,
         dispatching_override,
         ignored_scope,
+        quant_precision,
         **kwargs,
     )
 
     return quantizer
+
+
+def quantize(
+    model: str | os.PathLike,
+    f: str | os.PathLike,
+    platform: int,
+    quant_precision: TargetPrecision = TargetPrecision.INT8,
+    example_inputs: Optional[GraphInput] = None,
+    calib_dataloader: Optional[Iterable[Any]] = None,
+    executor: Optional[BaseGraphExecutor] = None,
+    collate_fn: Optional[Callable[[Any], Any]] = None,
+    calib_steps: int = 32,
+    prequant_settings: Optional[Sequence[dict | QuantizationOptimizationPass]] = None,
+    quant_settings: Optional[Sequence[dict | QuantizationOptimizationPass]] = None,
+    dispatcher: Optional[str] = None,
+    ignored_scope: Optional[list | IgnoredScope] = None,
+    **kwargs,
+) -> None:
+    r"""Quantize the onnx model to target platform and export the quantized model.
+
+    Args:
+        model (str | os.PathLike): onnx model path.
+        f (str | os.PathLike): output file path.
+        platform (int): target platform.
+        dispatcher (str | GraphDispatcher, optional): dispatch algorithm.
+            Defaults to "conservative".
+        ignored_scope (list | IgnoredScope, optional): a list of operation names
+            that will be ignored during quantization. Defaults to None.
+    """
+
+    parser = PARSER[_PLATFORM_TO_PARSER_[platform]]()
+    graph = load_graph(model, parser)
+    if dispatcher is None:
+        dispatcher = _PLATFORM_TO_DISPATCHER_[platform]
+    quantizer = QUANTIZER[_PLATFORM_TO_QUANTIZER_[platform]](graph)
+    graph = dispatch_graph(
+        graph,
+        quantizer.quant_operation_types,
+        dispatcher,
+        ignored_scope=ignored_scope,
+        **kwargs,
+    )
+    quantizer.quantize(
+        example_inputs=example_inputs,
+        calib_dataloader=calib_dataloader,
+        executor=executor,
+        collate_fn=collate_fn,
+        calib_steps=calib_steps,
+        prequant_settings=prequant_settings,
+        quant_settings=quant_settings,
+    )
+    exporter = EXPORTER[_PLATFORM_TO_PARSER_[platform]]()
+    export_graph(graph, f, exporter=exporter)

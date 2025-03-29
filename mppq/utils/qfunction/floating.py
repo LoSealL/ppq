@@ -5,6 +5,7 @@ from mppq.ffi import CUDA, ENABLE_CUDA_KERNEL
 from mppq.quant import QuantizationProperty, RoundingPolicy, TensorQuantizationConfig
 
 
+# pylint: disable=abstract-method, arguments-differ
 class TensorwiseFloatingQuantImpl(Function):
     """Torch Tensorwise quantize is designed to quantize a torch Tensor
     with a given configuration. All quantization within PPQ will invoke
@@ -51,8 +52,8 @@ class TensorwiseFloatingQuantImpl(Function):
             return quantized
 
     @staticmethod
-    def backward(ctx, dy: torch.Tensor):
-        return dy, None, None, None, None, None, None, None, None
+    def backward(ctx, *dy: torch.Tensor):
+        return dy[0], None, None, None, None, None, None, None, None
 
 
 class ChannelwiseFloatingQuantImpl(Function):
@@ -102,27 +103,17 @@ class ChannelwiseFloatingQuantImpl(Function):
             return quantized
 
     @staticmethod
-    def backward(ctx, dy: torch.Tensor):
-        return dy, None, None, None, None, None, None, None, None, None
+    def backward(ctx, *dy: torch.Tensor):
+        return dy[0], None, None, None, None, None, None, None, None, None
 
 
-def PPQFloatingQuantFunction(
+def floating_quant(
     tensor: torch.Tensor, config: TensorQuantizationConfig
 ) -> torch.Tensor:
     """PPQ 核心量化函数，没啥好说的了吧，这个玩意既做 quant 也做 dequant"""
 
-    if not ENABLE_CUDA_KERNEL.USING_CUDA_KERNEL:
-        raise PermissionError(
-            "PPQ Floating Quant Function require ENABLE_CUDA_KERNEL.USING_CUDA_KERNEL = True"
-        )
-    if not tensor.is_cuda:
-        raise PermissionError(
-            "PPQ Floating Quant Function requires tensor device to be cuda, "
-            "CPU floating quantization is not implemented yet."
-        )
-
     if config.policy.has_property(QuantizationProperty.PER_CHANNEL):
-        return ChannelwiseFloatingQuantImpl.apply(
+        qtensor = ChannelwiseFloatingQuantImpl.apply(
             tensor,
             config.scale,
             config.offset,
@@ -133,13 +124,16 @@ def PPQFloatingQuantFunction(
             config.quant_max,
             config.rounding,
         )
-    return TensorwiseFloatingQuantImpl.apply(
-        tensor,
-        config.scale,
-        config.offset,
-        config.exponent_bits,
-        config.mantissa_bits,
-        config.quant_min,
-        config.quant_max,
-        config.rounding,
-    )
+    else:
+        qtensor = TensorwiseFloatingQuantImpl.apply(
+            tensor,
+            config.scale,
+            config.offset,
+            config.exponent_bits,
+            config.mantissa_bits,
+            config.quant_min,
+            config.quant_max,
+            config.rounding,
+        )
+    assert isinstance(qtensor, torch.Tensor)
+    return qtensor

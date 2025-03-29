@@ -9,9 +9,8 @@ from mppq.quant import (
     QuantizationStates,
     TensorQuantizationConfig,
 )
-from mppq.quantization.observer.range import minmax_to_scale_offset
-
-from .base import OBSERVER_TABLE, BaseTensorObserver
+from mppq.quantization.observer.base import OBSERVER_TABLE, BaseTensorObserver
+from mppq.utils.qfunction.linear import minmax_to_scale_offset
 
 
 @OBSERVER_TABLE.register("minmax")

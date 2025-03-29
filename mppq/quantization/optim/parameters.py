@@ -2,20 +2,19 @@ from typing import Iterable, Optional
 
 import torch
 
-from mppq.executor import TorchExecutor
+from mppq.executor.base import BaseGraphExecutor
+from mppq.executor.torch import TorchExecutor
 from mppq.ir.base.graph import BaseGraph
 from mppq.ir.base.quantize import QuantableOperation
 from mppq.logger import warning
 from mppq.quant import QuantizationProperty, QuantizationStates, QuantVisibility
 from mppq.quantization.observer import OperationObserver
-
-from .base import OPTIM_ALGORITHMS, QuantizationOptimizationPass
+from mppq.quantization.optim.base import OPTIM_ALGORITHMS, QuantizationOptimizationPass
 
 
 @OPTIM_ALGORITHMS.register()
 class PassiveParameterQuantizePass(QuantizationOptimizationPass):
-    """
-    ## PPQ Passive Parameter Quantization Pass(通用被动量化过程)
+    r"""PPQ Passive Parameter Quantization Pass(通用被动量化过程)
 
     Passive Parameters are those parameters that must share a same scale and offset with
     other tensors. This pass process 4 types of passive parameter by default, namely:
@@ -34,13 +33,15 @@ class PassiveParameterQuantizePass(QuantizationOptimizationPass):
 
             Whether to process clip min, max
 
-            If not processed, clip min, max will has their state = QuantizationState.FP32
+            If not processed, clip min, max will has their
+            state = QuantizationState.FP32
 
     * process_bias(bool)
 
             Whether to process bias
 
-            If not processed, bias will has their state = QuantizationState.ACTIVATED
+            If not processed, bias will has their
+            state = QuantizationState.ACTIVATED
 
     * process_pad(bool)
 
@@ -57,7 +58,8 @@ class PassiveParameterQuantizePass(QuantizationOptimizationPass):
             Whether to export quant info of pad value
 
     ### Usage
-    This pass is included in PPQ Quantization Setting, you can calling this optimization by:
+    This pass is included in PPQ Quantization Setting, you can calling this
+    optimization by:
 
         setting = QuantizationSettingFactory.default_setting()
 
@@ -84,8 +86,13 @@ class PassiveParameterQuantizePass(QuantizationOptimizationPass):
         self.pad_visiblity = pad_visiblity
         super().__init__(name="PPQ Passive Parameter Quantization")
 
-    def optimize(self, graph: BaseGraph, **kwargs) -> None:
-
+    def optimize(
+        self,
+        graph: BaseGraph,
+        dataloader: Optional[Iterable] = None,
+        executor: Optional[BaseGraphExecutor] = None,
+        **kwargs,
+    ) -> None:
         def check_state(state: QuantizationStates):
             return state in {
                 QuantizationStates.PASSIVE,
@@ -179,23 +186,27 @@ class PassiveParameterQuantizePass(QuantizationOptimizationPass):
             for cfg, var in op.config_with_variable:
                 if cfg.state == QuantizationStates.PASSIVE_INIT:
                     warning(
-                        f"Unexpected quantization state of variable {var.name} at op {op.name}, "
-                        "The configuration state has been initialized as PASSIVE_INIT, "
-                        "however PassiveParameterQuantizePass do not known how to deal with it."
+                        f"Unexpected quantization state of variable {var.name} at "
+                        f"op {op.name}, the configuration state has been initialized "
+                        "as PASSIVE_INIT, however PassiveParameterQuantizePass do "
+                        "not known how to deal with it."
                     )
 
 
 @OPTIM_ALGORITHMS.register()
 class ParameterQuantizePass(QuantizationOptimizationPass):
-    """PPQ PassiveParameterQuantizePass completes the quantization of positive
+    r"""PPQ PassiveParameterQuantizePass completes the quantization of positive
     parameters. By default, all parameters with initial state will be quantized
     during this optimization, all non-parameter tensors will be excluded from
     this pass by temporary dequantization.
 
-    Then, operation observers will be established automatically to record necessary statistics,
-        observers are also responsible for rendering quantization configuration (computing scale and offset).
+    Then, operation observers will be established automatically to record necessary
+    statistics, observers are also responsible for rendering quantization
+    configuration (computing scale and offset).
 
-    This pass needs no data, however it uses fake data to finish a dummy forward process.
+    This pass needs no data, however it uses fake data to finish a dummy forward
+    process.
+
     see also: TorchExecutor.dummy_forward function
     """
 
@@ -204,9 +215,16 @@ class ParameterQuantizePass(QuantizationOptimizationPass):
         super().__init__(name="PPQ Parameter Quantization Pass")
 
     def optimize(
-        self, graph: BaseGraph, dataloader: Iterable, executor: TorchExecutor, **kwargs
+        self,
+        graph: BaseGraph,
+        dataloader: Optional[Iterable] = None,
+        executor: Optional[BaseGraphExecutor] = None,
+        **kwargs,
     ) -> None:
         # build observer and hook for each quantable operation
+        assert isinstance(
+            executor, TorchExecutor
+        ), "ParameterQuantizePass Only support TorchExecutor now."
         hooks, observers, state_records = {}, {}, {}
         for op_name, operation in graph.operations.items():
             if not isinstance(operation, QuantableOperation):
@@ -222,7 +240,7 @@ class ParameterQuantizePass(QuantizationOptimizationPass):
                     config.observer_algorithm = self._method
 
             observer = OperationObserver(
-                operation=executor._graph.operations[op_name],
+                operation=executor.graph.operations[op_name],
                 monitor_outputs=False,
                 monitor_inputs=False,
             )
@@ -230,9 +248,6 @@ class ParameterQuantizePass(QuantizationOptimizationPass):
             hooks[op_name] = observer.hook
 
         # dummy forward, quant all parameter.
-        assert isinstance(
-            executor, TorchExecutor
-        ), "ParameterQuantizePass Only support TorchExecutor now."
         executor.dummy_forward(hooks=hooks)
 
         # render quantization config, restore non-parameter quantization state

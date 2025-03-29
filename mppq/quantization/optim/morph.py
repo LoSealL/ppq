@@ -1,4 +1,4 @@
-from typing import Iterable, List, Tuple
+from typing import Iterable, List, Optional, Tuple
 
 import torch
 
@@ -7,14 +7,13 @@ from mppq.ir.base.graph import BaseGraph
 from mppq.ir.base.opdef import Operation, Variable
 from mppq.ir.base.quantize import QuantableOperation
 from mppq.ir.morph import GraphFormatter
-
-from .base import OPTIM_ALGORITHMS, QuantizationOptimizationPass
+from mppq.logger import info
+from mppq.quantization.optim.base import OPTIM_ALGORITHMS, QuantizationOptimizationPass
 
 
 @OPTIM_ALGORITHMS.register()
 class HorizontalLayerSplitPass(QuantizationOptimizationPass):
-    """
-    Horizontal Layer Split Pass(算子分裂过程)
+    r"""Horizontal Layer Split Pass(算子分裂过程)
 
     Split convolution layers or GEMM layers for better performance.
 
@@ -27,18 +26,21 @@ class HorizontalLayerSplitPass(QuantizationOptimizationPass):
             Y = (W_1 * X + b) + (W_2 * X)
 
     By splitting W like this, we are able to represent W more accurately.
-    In the case where one channel has weights in the range [-32, 32] and another channel has weights in the range [-0.5, 0.5].
-    the large channel will be divided so the range will come to [-16, 16], which leads us to use scale = 0.125 for representing
-    the weight tensor rather than 0.25.
+    In the case where one channel has weights in the range [-32, 32] and another
+    channel has weights in the range [-0.5, 0.5]. The large channel will be
+    divided so the range will come to [-16, 16], which leads us to use
+    scale = 0.125 for representing the weight tensor rather than 0.25.
 
     The Estimation of Quantization Error is shown as a quadratic function of scale:
 
             E(Quantization Error) = scale ^ 2 / 12
 
-    This Formula is proved by Bernard Widrow, according to the formula, a scale = 0.125 will decrease the quantization error by 75%.
+    This Formula is proved by Bernard Widrow, according to the formula, a scale = 0.125
+    will decrease the quantization error by 75%.
 
-    All the value larger than value_threshold will be divided into 2 part via this function, thus the layer itself will be
-    split, an new Add operation are going to be created.
+    All the value larger than value_threshold will be divided into 2 part via this
+    function, thus the layer itself will be split, an new Add operation are going
+    to be created.
 
     ### Parameters:
         self.interested_layers = interested_layers
@@ -56,7 +58,8 @@ class HorizontalLayerSplitPass(QuantizationOptimizationPass):
 
             This pass split value only when value is larger than value_threshold
 
-            If there is no value large enough to be processed, corresponding layer will be skipped.
+            If there is no value large enough to be processed, corresponding layer will
+            be skipped.
 
     # method(str)
 
@@ -83,23 +86,20 @@ class HorizontalLayerSplitPass(QuantizationOptimizationPass):
 
     def __init__(
         self,
-        interested_layers: List[str] = None,
+        interested_layers: List[str],
         value_threshold: float = 1,
         method: str = "balance",
-        verbose: bool = True,
     ) -> None:
         super().__init__("Layer Split Pass(Lateral)")
         self.interested_layers = interested_layers
         self.value_threshold = value_threshold
         self.method = str(method).lower()
-        self.verbose = verbose
 
         if self.interested_layers is None or len(self.interested_layers) == 0:
             raise ValueError(
                 "Layer Split Pass(Lateral) Requires a list of splitting layers, "
                 "while parameter interested_layers is empty."
             )
-
         if self.method not in {"balance", "random"}:
             raise ValueError(
                 f"Split method must be balance or random. While {self.method} is given."
@@ -109,7 +109,7 @@ class HorizontalLayerSplitPass(QuantizationOptimizationPass):
         # split weight
         value = op.inputs[1].value
         mask = value.abs() > self.value_threshold
-        processed_values = mask.sum().item()
+        processed_values = int(mask.sum().item())
 
         s_value = value
         if self.method == "balance":
@@ -117,86 +117,84 @@ class HorizontalLayerSplitPass(QuantizationOptimizationPass):
         elif self.method == "random":
             s_value = (value * torch.rand_like(value)) * mask
         else:
-            raise Exception("Oops, seems we got some troubles here.")
+            raise RuntimeError("Oops, seems we got some troubles here.")
         r_value = value - s_value
 
-        # print
-        if self.verbose:
-            print("")
-            print(
-                f"# Layer {op.name} has been split, "
-                f"{processed_values}/{value.numel()} value(s) was processed."
-            )
+        info(
+            f"# Layer {op.name} has been split, "
+            f"{processed_values}/{value.numel()} value(s) was processed."
+        )
         return r_value, s_value, processed_values
 
+    @torch.no_grad()
     def optimize(
         self,
         graph: BaseGraph,
-        dataloader: Iterable,
-        executor: BaseGraphExecutor,
+        dataloader: Optional[Iterable] = None,
+        executor: Optional[BaseGraphExecutor] = None,
         **kwargs,
     ) -> None:
-        with torch.no_grad():
-            for name in self.interested_layers:
-                # op check
-                if name not in graph.operations:
-                    raise KeyError(f"Operation {name} is not in current graph.")
-                op1 = graph.operations[name]
-                if op1.type not in {"Gemm", "MatMul", "Conv", "ConvTranspose"}:
-                    raise TypeError(
-                        f"Operation {op1.name} can not be split, "
-                        f"op type is invalid({op1.type})"
-                    )
-                if not op1.inputs[1].is_parameter:
-                    raise ValueError(
-                        f"Operation {op1.name} can not be split, "
-                        "input 1 is not parameter."
-                    )
-                if isinstance(op1, QuantableOperation):
-                    raise TypeError(
-                        "Can not split a quantized operation, Layer Split Pass should "
-                        "only be invoked as a pre-quant optimization."
-                    )
+        for name in self.interested_layers:
+            # op check
+            if name not in graph.operations:
+                raise KeyError(f"Operation {name} is not in current graph.")
+            op1 = graph.operations[name]
+            if op1.type not in {"Gemm", "MatMul", "Conv", "ConvTranspose"}:
+                raise TypeError(
+                    f"Operation {op1.name} can not be split, "
+                    f"op type is invalid({op1.type})"
+                )
+            if not op1.inputs[1].is_parameter:
+                raise ValueError(
+                    f"Operation {op1.name} can not be split, "
+                    "input 1 is not parameter."
+                )
+            if isinstance(op1, QuantableOperation):
+                raise TypeError(
+                    "Can not split a quantized operation, Layer Split Pass should "
+                    "only be invoked as a pre-quant optimization."
+                )
 
-                r_value, s_value, processed_values = self.h_split(op1)
+            r_value, s_value, processed_values = self.h_split(op1)
 
-                if processed_values > 0:
-                    # clone current operation
-                    op2 = graph.create_operation(
-                        op_type=op1.type,
-                        attributes=op1.attributes.copy(),
-                        platform=op1.precision,
-                    )
-                    input_var, output_var = op1.inputs[0], op1.outputs[0]
-                    graph.create_link_with_op(input_var.source_op, op2, op1.inputs[0])
+            if processed_values > 0:
+                # clone current operation
+                op2 = graph.create_operation(
+                    op_type=op1.type,
+                    attributes=op1.attributes.copy(),
+                    platform=op1.precision,
+                )
+                input_var, output_var = op1.inputs[0], op1.outputs[0]
+                graph.create_link_with_op(input_var.source_op, op2, op1.inputs[0])
 
-                    # create weight for cloned operation.
-                    graph.create_variable(
-                        value=op1.inputs[1].value.clone(),
-                        is_parameter=True,
-                        dest_ops=[op2],
-                    )
+                # create weight for cloned operation.
+                graph.create_variable(
+                    value=op1.inputs[1].value.clone(),
+                    is_parameter=True,
+                    dest_ops=[op2],
+                )
 
-                    # set split value
-                    op1.inputs[1].value.copy_(r_value)
-                    op2.inputs[1].value.copy_(s_value)
+                # set split value
+                op1.inputs[1].value.copy_(r_value)
+                op2.inputs[1].value.copy_(s_value)
 
-                    op1.outputs.clear()
-                    adder = graph.create_operation(
-                        op_type="Add", platform=op1.precision, outputs=[output_var]
-                    )
-                    output_var.source_op = adder
+                op1.outputs.clear()
+                adder = graph.create_operation(
+                    op_type="Add", platform=op1.precision, outputs=[output_var]
+                )
+                output_var.source_op = adder
 
-                    graph.create_link_with_op(op1, adder)
-                    graph.create_link_with_op(op2, adder)
+                graph.create_link_with_op(op1, adder)
+                graph.create_link_with_op(op2, adder)
 
 
 @OPTIM_ALGORITHMS.register()
 class GRUSplitPass(QuantizationOptimizationPass):
-    """执行 GRU 算子分解，这个 Pass 将 GRU 算子分解为单步执行的形式.
+    r"""执行 GRU 算子分解，这个 Pass 将 GRU 算子分解为单步执行的形式.
 
-    请注意，对于 ONNX GRU 算子而言, 它有两个输出, 一个是完整的hidden vector, 另一个是单步的 last state 这个
-    pass 是针对单步执行而设计的，它将直接删除 hidden vector 之后的所有输出
+    请注意，对于 ONNX GRU 算子而言, 它有两个输出, 一个是完整的hidden vector,
+    另一个是单步的 last state 这个 pass 是针对单步执行而设计的，它将直接删除
+    hidden vector 之后的所有输出
     """
 
     def __init__(self, name: str = "Metax Gemm Split Pass") -> None:
@@ -207,7 +205,13 @@ class GRUSplitPass(QuantizationOptimizationPass):
         processor.truncate_on_var(var=hidden_vec, mark_as_output=False)
 
     # Implementation of Gemm Split will move to IR.morph soon.
-    def optimize(self, graph: BaseGraph, **kwargs) -> None:
+    def optimize(
+        self,
+        graph: BaseGraph,
+        dataloader: Optional[Iterable] = None,
+        executor: Optional[BaseGraphExecutor] = None,
+        **kwargs,
+    ) -> None:
         interested_ops = []
         for operation in graph.operations.values():
             if operation.type == "GRU":
@@ -304,7 +308,6 @@ class GRUSplitPass(QuantizationOptimizationPass):
             graph.create_link_with_op(op14, op13)
 
             # mark h as graph input, link h to op2, op10 and op7
-            rnn_h.source_op.outputs.remove(rnn_h)
             rnn_h.source_op = None
             rnn_h.dest_ops.remove(op)
             graph.mark_variable_as_graph_input(rnn_h)

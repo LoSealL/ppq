@@ -6,8 +6,8 @@ import torch
 
 from mppq.executor import TorchQuantizeDelegator
 from mppq.quant import TensorQuantizationConfig
-from mppq.quantization.qfunction import PPQuantFunction
 from mppq.utils.ema import EMARecorder
+from mppq.utils.qfunction import ppq_fake_quant
 
 
 class BanditDelegator(TorchQuantizeDelegator):
@@ -41,14 +41,14 @@ class BanditDelegator(TorchQuantizeDelegator):
         if random.random() > self.e:
             selected = random.randint(0, len(self.arms) - 1)
         else:
-            selected = np.argmax([ema.pop() for ema in self.rewards])
+            selected = np.argmax([ema.pop() for ema in self.rewards]).item()
         self.last_selected = selected
         return selected
 
     def mark(self, rewards: float):
         self.rewards[self.last_selected].push(rewards)
 
-    def finalize(self) -> bool:
+    def finalize(self):
         self.config.scale = (
             self.reference * self.arms[np.argmax([ema.pop() for ema in self.rewards])]
         )
@@ -60,4 +60,4 @@ class BanditDelegator(TorchQuantizeDelegator):
         self, tensor: torch.Tensor, config: TensorQuantizationConfig
     ) -> torch.Tensor:
         config.scale = self.reference * self.arms[self.roll()]
-        return PPQuantFunction(tensor, config)
+        return ppq_fake_quant(tensor, config)

@@ -10,11 +10,7 @@ from torch import _VF
 from mppq import logger
 from mppq.common import GRU_FLATTEN_WEIGHT_ATTRIB, LSTM_FLATTEN_WEIGHT_ATTRIB
 from mppq.data import DataType, convert_any_to_python_primary_type
-from mppq.ir.base.opdef import Operation
-from mppq.quant import TargetPrecision
-from mppq.utils.attribute import process_attribute
-
-from .base import (
+from mppq.executor.op.base import (
     ASSERT_NUM_OF_INPUT,
     DEFAULT_BACKEND_TABLE,
     FORCE_CONVERT_DEVICE,
@@ -23,6 +19,9 @@ from .base import (
     VALUE_TO_EXECUTING_DEVICE,
     TorchBackendContext,
 )
+from mppq.ir.base.opdef import Operation
+from mppq.quant import TargetPrecision
+from mppq.utils.attribute import process_attribute
 
 # Reference:
 # onnx op: https://github.com/onnx/onnx/blob/master/docs/Operators.md
@@ -4475,52 +4474,6 @@ def Erf_forward(
     return torch.erf(x)  # may require a higher version pytorch
 
 
-def PPQBiasFusedMatMul_forward(
-    op: Operation,
-    values: Sequence[torch.Tensor],
-    ctx: Optional[TorchBackendContext] = None,
-    **kwargs,
-) -> torch.Tensor:
-    """
-    PPQ Special Edition of MatMul
-        Matrix product that behaves like numpy.matmul:
-        https://docs.scipy.org/doc/numpy-1.13.0/reference/generated/numpy.matmul.html
-
-    Version
-        This version of the operator has been available since version 13 of the default ONNX operator set.
-
-        Other versions of this operator: 1, 9
-
-    Inputs
-        A (differentiable) : T
-            N-dimensional matrix A
-
-        B (differentiable) : T
-            N-dimensional matrix B
-
-        C (Optional) (differentiable) : T
-            Bias Tensor Of MatMul
-
-    Outputs
-        Y (differentiable) : T
-            Matrix multiply results from A * B
-
-    Args:
-        op (Operation): _description_
-        values (Sequence[torch.Tensor]): _description_
-        ctx (TorchBackendContext, optional): _description_. Defaults to None.
-
-    Returns:
-        torch.Tensor: _description_
-    """
-    ASSERT_NUM_OF_INPUT(op=op, values=values, min_num_of_input=2, max_num_of_input=3)
-    values = VALUE_TO_EXECUTING_DEVICE(op=op, ctx=ctx, values=values)
-    output = torch.matmul(values[0], values[1])
-    if len(values) == 3:
-        output += values[-1]
-    return output
-
-
 DEFAULT_BACKEND_TABLE.update(
     Abs=Abs_forward,
     AdaptiveAvgPool2d=AdaptiveAvgPool2d_forward,
@@ -4568,7 +4521,6 @@ DEFAULT_BACKEND_TABLE.update(
     NonZero=NonZero_forward,
     Not=Not_forward,
     Pad=Pad_forward,
-    PPQBiasFusedMatMul=PPQBiasFusedMatMul_forward,
     PRelu=PRelu_forward,
     Range=Range_forward,
     ReduceL2=ReduceL2_forward,
