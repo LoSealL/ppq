@@ -314,6 +314,7 @@ def quantize(
         quantizer.quant_operation_types,
         dispatcher,
         ignored_scope=ignored_scope,
+        quant_precision=quant_precision,
         **kwargs,
     )
     quantizer.quantize(
