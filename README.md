@@ -86,7 +86,7 @@ def default_quant_pipeline(self) -> QuantizationOptimizationPipeline:
     raise NotImplementedError
 ```
 
-Quantizer often works together with dispatcher, for example, dispatcher will refer `quant_operation_types` and `target_precision` from quantizer.
+Quantizer doesn't work with dispatcher any more, now user's dispatcher (or builtin ones) must dispatch all operations in the graph to a specific precision, if one of the operation is `Precision.UNSPECIFIED`, quantizer will raise an error now.
 
 4. Platform
 
@@ -111,6 +111,18 @@ export_ppq_graph(quantized_graph, "quantized_mymodel.onnx")
 ```
 
 Users can use builtin dispatcher by specifying a name in `load_quantizer`, but I highly recommend to know very detail of your platform and design your own dispatcher and quantizer.
+
+```python
+register_platform(
+    MyPlatformID,
+    dispatcher={},  # need to specify a builtin dispatcher name in quantize api
+    quantizer={"myquant": MyQuantizer},
+    parsers={},  # use builtin onnx parser
+    exporters={},  # use builtin onnx exporter
+)
+
+quantizer = load_quantizer("mymodel.onnx", MyPlatformID, dispatcher="allin")
+```
 
 
 5. [Operation](mppq/executor/op/base.py#L135)
@@ -139,6 +151,12 @@ def myop_forward(
     ...
 ```
 
+
+## Contribution
+
+All mPPQ python codes are clean with flake8, black, and pyright (_except for mppq/executor/op/default.py_).
+
+Test coverage: 51% (v0.7.1)
 
 ## Acknowledgement
 

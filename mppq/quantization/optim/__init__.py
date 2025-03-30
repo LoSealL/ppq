@@ -10,10 +10,6 @@ from mppq.quantization.optim.equalization import (
     ChannelwiseSplitPass,
     LayerwiseEqualizationPass,
 )
-from mppq.quantization.optim.experimental import (
-    LearningToCalibPass,
-    MatrixFactorizationPass,
-)
 from mppq.quantization.optim.morph import GRUSplitPass, HorizontalLayerSplitPass
 from mppq.quantization.optim.parameters import (
     ParameterQuantizePass,
@@ -41,8 +37,6 @@ __all__ = [
     "ActivationEqualizationPass",
     "ChannelwiseSplitPass",
     "LayerwiseEqualizationPass",
-    "LearningToCalibPass",
-    "MatrixFactorizationPass",
     "AdaroundPass",
     "GRUSplitPass",
     "HorizontalLayerSplitPass",

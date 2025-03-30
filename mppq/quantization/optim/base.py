@@ -1,5 +1,5 @@
 from abc import ABCMeta, abstractmethod
-from typing import Iterable, List, Optional, Self, Sequence, Type
+from typing import Generator, Iterable, List, Optional, Self, Sequence, Type
 
 from mppq.executor.base import BaseGraphExecutor
 from mppq.ir.base.graph import BaseGraph
@@ -19,7 +19,7 @@ class QuantizationOptimizationPass(metaclass=ABCMeta):
     your network.
     """
 
-    def __init__(self, name: Optional[str] = None, **kw) -> None:
+    def __init__(self, name: Optional[str] = None) -> None:
         self.name = name or self.__class__.__name__
 
     @abstractmethod
@@ -60,7 +60,7 @@ class QuantizationOptimizationPipeline(QuantizationOptimizationPass):
     def __contains__(self, obj: QuantizationOptimizationPass) -> bool:
         return obj in self._pipeline
 
-    def __iter__(self) -> Iterable[QuantizationOptimizationPass]:
+    def __iter__(self) -> Generator[QuantizationOptimizationPass, None, None]:
         for i in self._pipeline:
             if isinstance(i, QuantizationOptimizationPipeline):
                 # support nested pipeline
@@ -76,10 +76,10 @@ class QuantizationOptimizationPipeline(QuantizationOptimizationPass):
         verbose: bool = True,
         **kwargs,
     ):
-        for i, optim in enumerate(self.__iter__()):
+        for i, optim in enumerate(self):
             assert isinstance(optim, QuantizationOptimizationPass)
             if verbose:
-                info(f"[{i:02d}/{len(self):02d} {optim.name} Running ...")
+                info(f"[{i + 1:02d}/{len(self):02d} {optim.name} Running ...")
 
             if not isinstance(graph, BaseGraph):
                 raise TypeError(
