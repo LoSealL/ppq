@@ -1,15 +1,5 @@
 from collections import defaultdict, deque
-from typing import (
-    Any,
-    Dict,
-    Iterable,
-    Iterator,
-    List,
-    Optional,
-    Protocol,
-    Sequence,
-    Set,
-)
+from typing import Any, Dict, Iterator, List, Optional, Protocol, Sequence, Set
 
 from mppq.ir.base.command import GraphCommand, GraphCommandType
 from mppq.ir.base.graph import BaseGraph, Operation
@@ -40,7 +30,7 @@ class TypeExpr:
         return op.type == self.type
 
 
-class Path(Iterable):
+class Path:
     def __init__(self, operation: Optional[Operation] = None) -> None:
         self._container = deque()
         if operation is not None:
@@ -72,13 +62,7 @@ class Path(Iterable):
         return c
 
 
-class OperationSet(set):
-    def add(self, element: Operation):  # type: ignore
-        if not isinstance(element, Operation):
-            raise TypeError("Operation Set can only contains operation instance.")
-        super().add(element)
-        return self
-
+class OperationSet(Set[Operation]):
     def filter(self, condition: PointPattern):
         removing = []
         for item in self:
@@ -511,7 +495,8 @@ class SearchableGraph(GraphCommandProcessor):
 
         # new feature with ppq 0.6.5, if ep_expr is None, means search until mismatch.
         if len(following_ops) == 0 and ep_expr is None:
-            return ret_collection.add(start_point)
+            ret_collection.add(start_point)
+            return ret_collection
 
         for op in following_ops:
             # if operation is a valid end point, add it to path and stop searching.
