@@ -148,10 +148,10 @@ class Variable(Serializable):
         if not copy_value or not self.has_value:
             cloned = Variable(
                 name=self.name,
-                value=self.value,
+                value=self._value,
                 is_parameter=self.is_parameter,
-                shape=self.shape,
-                dtype=self.dtype,
+                shape=self._shape,
+                dtype=self._dtype,
             )
             return cloned
 
