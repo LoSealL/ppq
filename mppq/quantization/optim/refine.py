@@ -551,11 +551,8 @@ class QuantAlignmentPass(QuantizationOptimizationPass):
 
         Any change to slave config will be rejected since then.
         """
-        global_min, global_max, master_config = (
-            0,
-            0,
-            op.config.input_quantization_config[0],
-        )
+        global_min, global_max = (0, 0)
+        master_config = op.config.input_quantization_config[0]
         for config in op.config.input_quantization_config:
             if config.state == QuantizationStates.FP32:
                 continue
@@ -607,7 +604,7 @@ class QuantAlignmentPass(QuantizationOptimizationPass):
                 slave_config.master_by = master_config
         return master_config
 
-    def optimize(
+    def optimize(  # noaq: C901
         self,
         graph: BaseGraph,
         dataloader: Optional[Iterable] = None,

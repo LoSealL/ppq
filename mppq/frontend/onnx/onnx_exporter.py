@@ -246,7 +246,7 @@ class OnnxExporter(GraphExporter):
         self,
         file_path: str | os.PathLike,
         graph: BaseGraph,
-        config_path: Optional[str] = None,
+        config_path: Optional[str | os.PathLike] = None,
         save_as_external_data: bool = False,
         **kwargs,
     ):

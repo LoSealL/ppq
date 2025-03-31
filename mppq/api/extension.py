@@ -86,10 +86,12 @@ def register_platform(
             字典键值可选，作为调度器的命名，和调度器的类类型。
         quantizer (Dict[str | None, Type[BaseQuantizer]]): 自定义平台的量化器。
             字典键值可选，作为量化器的命名，和量化器的类类型。
-        parsers (Optional[Dict[str | None, Type[GraphBuilder]]], optional): 自定义平台的图构建器。
-            字典键值可选，作为图构建器的命名，和图构建器的类类型。 Defaults to None.
-        exporters (Optional[Dict[str | None, Type[GraphExporter]]], optional): 自定义平台的图导出器。
-            字典键值可选，作为图导出器的命名，和图导出器的类类型。 Defaults to None.
+        parsers (Optional[Dict[str | None, Type[GraphBuilder]]], optional):
+            自定义平台的图构建器。字典键值可选，作为图构建器的命名，和图构建器的类类型。
+            Defaults to None.
+        exporters (Optional[Dict[str | None, Type[GraphExporter]]], optional):
+            自定义平台的图导出器。字典键值可选，作为图导出器的命名，和图导出器的类类型。
+            Defaults to None.
     """
     if platform_id in _PLATFORM_TO_DISPATCHER_:
         raise KeyError(f"Platform {platform_id} is already registered.")

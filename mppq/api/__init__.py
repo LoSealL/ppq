@@ -14,6 +14,7 @@ from mppq import __version__
 from mppq.api.extension import register_operation, register_platform
 from mppq.api.interface import (
     dispatch_graph,
+    export_config,
     export_graph,
     export_onnx_graph,
     format_graph,
@@ -37,6 +38,7 @@ __all__ = [
     "register_operation",
     "register_platform",
     "dispatch_graph",
+    "export_config",
     "export_graph",
     "export_onnx_graph",
     "format_graph",

@@ -63,8 +63,8 @@ class CalibrationHook(QuantRuntimeHook):
 
     def pre_forward_hook(
         self,
-        inputs: Sequence[torch.Tensor],
-        quant_inputs: Sequence[torch.Tensor] = (),
+        inputs: Sequence[torch.Tensor | None],
+        quant_inputs: Sequence[torch.Tensor | None] = (),
         quant_configs: Sequence[TensorQuantizationConfig] = (),
         **kwargs,
     ):
@@ -76,8 +76,8 @@ class CalibrationHook(QuantRuntimeHook):
 
     def post_forward_hook(
         self,
-        outputs: Sequence[torch.Tensor],
-        quant_outputs: Sequence[torch.Tensor] = (),
+        outputs: Sequence[torch.Tensor | None],
+        quant_outputs: Sequence[torch.Tensor | None] = (),
         quant_configs: Sequence[TensorQuantizationConfig] = (),
         **kwargs,
     ):

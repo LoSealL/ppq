@@ -46,7 +46,9 @@ class RuntimeHook:
     def __init__(self, operation: Operation, **kwargs) -> None:
         self._hook_to = operation
 
-    def pre_forward_hook(self, inputs: Sequence[Tensor], **kwargs) -> List[Tensor]:
+    def pre_forward_hook(
+        self, inputs: Sequence[Tensor | None], **kwargs
+    ) -> List[Tensor | None]:
         """user-customized pre-processing procedure of input data.
 
         Args:
@@ -57,7 +59,9 @@ class RuntimeHook:
         """
         return list(inputs)
 
-    def post_forward_hook(self, outputs: Sequence[Tensor], **kwargs) -> List[Tensor]:
+    def post_forward_hook(
+        self, outputs: Sequence[Tensor | None], **kwargs
+    ) -> List[Tensor | None]:
         """user-customized post-processing procedure of output data.
 
         Args:
@@ -82,21 +86,21 @@ class QuantRuntimeHook(RuntimeHook):
 
     def pre_forward_hook(
         self,
-        inputs: Sequence[Tensor],
-        quant_inputs: Sequence[Tensor] = (),
+        inputs: Sequence[Tensor | None],
+        quant_inputs: Sequence[Tensor | None] = (),
         quant_configs: Sequence[TensorQuantizationConfig] = (),
         **kwargs,
-    ) -> List[Tensor]:
+    ) -> List[Tensor | None]:
         assert len(inputs) == len(quant_inputs) == len(quant_configs)
         return list(quant_inputs)
 
     def post_forward_hook(
         self,
-        outputs: Sequence[Tensor],
-        quant_outputs: Sequence[Tensor] = (),
+        outputs: Sequence[Tensor | None],
+        quant_outputs: Sequence[Tensor | None] = (),
         quant_configs: Sequence[TensorQuantizationConfig] = (),
         **kwargs,
-    ) -> List[Tensor]:
+    ) -> List[Tensor | None]:
         assert len(outputs) == len(quant_outputs) == len(quant_configs)
         return list(quant_outputs)
 
@@ -155,7 +159,7 @@ class BaseGraphExecutor(metaclass=ABCMeta):
     def forward(
         self,
         inputs: GraphInput,
-        output_names: Optional[List[str]] = None,
+        output_names: Optional[Sequence[str]] = None,
         hooks: Optional[Mapping[str, RuntimeHook]] = None,
     ) -> List[torch.Tensor]:
         """Forward a graph from given inputs to required output names.
@@ -169,7 +173,7 @@ class BaseGraphExecutor(metaclass=ABCMeta):
     def tracing_operation_meta(
         self,
         inputs: GraphInput,
-        output_names: Optional[List[str]] = None,
+        output_names: Optional[Sequence[str]] = None,
     ) -> None:
         raise NotImplementedError("Please implement this function first.")
 
@@ -177,7 +181,7 @@ class BaseGraphExecutor(metaclass=ABCMeta):
     def forward_single_operation(
         self,
         op: Operation,
-        inputs: List[Tensor],
+        inputs: Sequence[Tensor | None],
         ctx: Optional[TorchBackendContext] = None,
         return_list: Literal[True] = True,
     ) -> Tuple[Tensor, ...]:
@@ -187,7 +191,7 @@ class BaseGraphExecutor(metaclass=ABCMeta):
     def forward_single_operation(
         self,
         op: Operation,
-        inputs: List[Tensor],
+        inputs: Sequence[Tensor | None],
         ctx: Optional[TorchBackendContext] = None,
         return_list: bool = True,
     ) -> Tuple[Tensor, ...] | Tensor:
@@ -196,7 +200,7 @@ class BaseGraphExecutor(metaclass=ABCMeta):
     def forward_single_operation(
         self,
         op: Operation,
-        inputs: List[Tensor],
+        inputs: Sequence[Tensor | None],
         ctx: Optional[TorchBackendContext] = None,
         return_list: bool = True,
     ) -> Tuple[Tensor, ...] | Tensor:
@@ -210,7 +214,7 @@ class BaseGraphExecutor(metaclass=ABCMeta):
     def __call__(
         self,
         inputs: GraphInput,
-        output_names: Optional[List[str]] = None,
+        output_names: Optional[Sequence[str]] = None,
     ) -> List[torch.Tensor]:
         return self.forward(inputs=inputs, output_names=output_names)
 
