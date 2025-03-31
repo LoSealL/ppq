@@ -1,6 +1,6 @@
 import math
 from functools import partial
-from typing import Dict, List, Literal, Optional, Sequence
+from typing import Dict, Literal, Optional, Sequence
 
 import torch
 
@@ -20,7 +20,7 @@ class OutputRecorder(RuntimeHook):
         self.fetches = fetches
         super().__init__(operation)
 
-    def post_forward_hook(self, outputs: Sequence[torch.Tensor], **kwargs):
+    def post_forward_hook(self, outputs: Sequence[torch.Tensor | None], **kwargs):
         output_tensor = outputs[0]
         assert isinstance(
             output_tensor, torch.Tensor
@@ -44,16 +44,18 @@ class DetailedRecorder(RuntimeHook):
         self.o_storage = [[] for _ in range(operation.num_of_output)]
         super().__init__(operation)
 
-    def pre_forward_hook(self, inputs: Sequence[torch.Tensor], **kwargs):
+    def pre_forward_hook(self, inputs: Sequence[torch.Tensor | None], **kwargs):
         for i, v in enumerate(inputs):
-            vv = tensor_random_fetch(v, seed=10086, num_of_fetches=self.fetches)
-            self.i_storage[i].append(vv.to("cpu"))
+            if v is not None:
+                vv = tensor_random_fetch(v, seed=10086, num_of_fetches=self.fetches)
+                self.i_storage[i].append(vv.to("cpu"))
         return super().pre_forward_hook(inputs, **kwargs)
 
-    def post_forward_hook(self, outputs: Sequence[torch.Tensor], **kwargs):
+    def post_forward_hook(self, outputs: Sequence[torch.Tensor | None], **kwargs):
         for i, v in enumerate(outputs):
-            vv = tensor_random_fetch(v, seed=10086, num_of_fetches=self.fetches)
-            self.o_storage[i].append(vv.to("cpu"))
+            if v is not None:
+                vv = tensor_random_fetch(v, seed=10086, num_of_fetches=self.fetches)
+                self.o_storage[i].append(vv.to("cpu"))
         return super().post_forward_hook(outputs, **kwargs)
 
     def clear(self):

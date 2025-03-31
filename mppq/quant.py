@@ -570,20 +570,15 @@ class TensorQuantizationConfig(Serializable):
 
     @property
     def master_by(self) -> "TensorQuantizationConfig":
-        if self._dominator == self:
-            return self
-        else:
-            root = self._dominator.dominated_by
-            self._dominator = root
-            return root
+        return self.dominated_by
 
     @master_by.setter
     def master_by(self, master: "TensorQuantizationConfig"):
+        # TODO: combined with dominated_by, and remove one of OVERLAPPED and PASSIVE
         assert isinstance(master, TensorQuantizationConfig)
-        if master == self:
-            raise ValueError(
-                "Error with TQC.dominated_by = o: o must not equal to TQC its self."
-            )
+        dominator = master.dominated_by
+        if dominator == self:
+            return
         self._dominator = master
         if master.scale is not None and master.offset is not None:
             self.state = QuantizationStates.PASSIVE
@@ -614,7 +609,7 @@ class TensorQuantizationConfig(Serializable):
 
         If current TQC is dominated by other, return father TQC's scale instead.
         """
-        if self.dominated_by == self:
+        if self._dominator == self:
             if self._scale is None:
                 raise ValueError("scale is not initialized.")
             return self._scale
@@ -627,7 +622,7 @@ class TensorQuantizationConfig(Serializable):
 
         If current TQC is dominated by other, return father TQC's offset instead.
         """
-        if self.dominated_by == self:
+        if self._dominator == self:
             if self._offset is None:
                 raise ValueError("offset is not initialized.")
             return self._offset

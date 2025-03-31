@@ -86,6 +86,17 @@ def export_onnx_graph(graph: BaseGraph, f: str | os.PathLike):
     export_graph(graph, f, exporter=exporter)
 
 
+def export_config(graph: BaseGraph, f: str | os.PathLike):
+    r"""导出PPQ IR Graph的量化配置。
+    Args:
+        graph (BaseGraph): 待导出IR Graph对象。
+        f (str|os.PathLike): 导出文件路径。
+    """
+
+    exporter = EXPORTER["onnx"]()
+    exporter.dump_quantization_config(f, graph)
+
+
 def format_graph(
     graph: BaseGraph,
     format_constant_input: bool = True,

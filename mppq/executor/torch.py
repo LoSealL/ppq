@@ -23,22 +23,17 @@ from mppq.utils.qfunction import ppq_fake_quant
 
 
 class TorchMetaDataTracingHook(RuntimeHook):
-    def pre_forward_hook(self, inputs: Sequence[torch.Tensor], **kwargs):
+    def pre_forward_hook(self, inputs: Sequence[torch.Tensor | None], **kwargs):
         # some operations got none as its input
         # therefore we have to create meta for those none input value manually.
         for tensor, var in zip(inputs, self._hook_to.inputs):
-            if tensor is None:
-                warning(
-                    f"Unexpected input value of operation {self._hook_to.name}, "
-                    f'recieving "None" at its input {self._hook_to.inputs.index(var)}'
-                )
-            else:
+            if tensor is not None:
                 var.shape = list(tensor.shape)
                 var.dtype = DataType.from_torch(tensor.dtype)
 
         return list(inputs)
 
-    def post_forward_hook(self, outputs: Sequence[torch.Tensor], **kwargs):
+    def post_forward_hook(self, outputs: Sequence[torch.Tensor | None], **kwargs):
         for tensor, var in zip(outputs, self._hook_to.outputs):
             if tensor is not None:
                 var.shape = list(tensor.shape)
@@ -398,11 +393,10 @@ class TorchExecutor(BaseGraphExecutor):
         self.deploy()
         return self
 
-    @torch.no_grad()
     def forward(
         self,
         inputs: GraphInput,
-        output_names: Optional[List[str]] = None,
+        output_names: Optional[Sequence[str]] = None,
         hooks: Optional[Mapping[str, RuntimeHook]] = None,
     ) -> List[torch.Tensor]:
         """Forward function of this executor.
@@ -443,17 +437,17 @@ class TorchExecutor(BaseGraphExecutor):
         Returns:
             List[torch.Tensor]: [executing result, list of tensor objects.]
         """
-        return self._forward_operations(
-            inputs=inputs,
-            output_names=output_names,
-            executing_order=self._executing_order,
-            hooks=hooks,
-        )
+        with torch.no_grad():
+            return self.forward_with_gradient(
+                inputs=inputs,
+                output_names=output_names,
+                hooks=hooks,
+            )
 
     def forward_with_gradient(
         self,
         inputs: GraphInput,
-        output_names: Optional[List[str]] = None,
+        output_names: Optional[Sequence[str]] = None,
         hooks: Optional[Mapping[str, RuntimeHook]] = None,
     ) -> List[torch.Tensor]:
         """forward function of this executor.
@@ -494,8 +488,10 @@ class TorchExecutor(BaseGraphExecutor):
         Returns:
             List[torch.Tensor]: [executing result, list of tensor objects.]
         """
+
+        input_dict = self._prepare_input(inputs=inputs)
         return self._forward_operations(
-            inputs=inputs,
+            inputs=input_dict,
             output_names=output_names,
             executing_order=self._executing_order,
             hooks=hooks,
@@ -503,13 +499,12 @@ class TorchExecutor(BaseGraphExecutor):
 
     def _forward_operations(  # noqa: C901
         self,
-        inputs: GraphInput,
-        executing_order: List[Operation],
-        output_names: Optional[List[str]] = None,
+        inputs: Dict[str, torch.Tensor],
+        executing_order: Sequence[Operation],
+        output_names: Optional[Sequence[str]] = None,
         hooks: Optional[Mapping[str, RuntimeHook]] = None,
     ) -> List[torch.Tensor]:
-        input_dict = self._prepare_input(inputs=inputs)
-        for key, value in input_dict.items():
+        for key, value in inputs.items():
             if not isinstance(value, torch.Tensor):
                 raise TypeError(
                     "TorchExecutor can only accept tensor as its input, "
@@ -544,26 +539,30 @@ class TorchExecutor(BaseGraphExecutor):
         result_collector: List = [None for _ in output_names]
         # output name can be the same as input name, collect them directly.
         for name in output_names:
-            if name in input_dict:
-                result_collector[output_names.index(name)] = input_dict[name]
+            if name in inputs:
+                result_collector[output_names.index(name)] = inputs[name]
 
         for operation in executing_order[:last_idx]:
             try:
                 operation_runtime_hook = None
                 if hooks is not None and operation.name in hooks:
                     operation_runtime_hook = hooks[operation.name]
-                input_data = [var.value for var in operation.inputs]
+                input_data = [
+                    var.value if var.name else None for var in operation.inputs
+                ]
 
                 # if operation is an QuantableOperation, we have to quant its inputs
                 # and outputs at first.
                 input_configs = []
+                quant_input_data = []
                 if isinstance(operation, QuantableOperation):
                     input_configs = list(operation.config.input_quantization_config)
-                    input_data = [
-                        self.quantize_function(input, config)
-                        for input, config in zip(input_data, input_configs)
-                    ]
-
+                    for data, config in zip(input_data, input_configs):
+                        if data is not None:
+                            qdata = self.quantize_function(data, config)
+                            quant_input_data.append(qdata)
+                        else:
+                            quant_input_data.append(None)
                 # PATCH 20220208
                 for idx, var in enumerate(operation.inputs):
                     if var.name in output_names:
@@ -573,8 +572,8 @@ class TorchExecutor(BaseGraphExecutor):
                 if operation_runtime_hook is not None:
                     if isinstance(operation_runtime_hook, QuantRuntimeHook):
                         input_data = operation_runtime_hook.pre_forward_hook(
-                            inputs=[var.value for var in operation.inputs],
-                            quant_inputs=input_data,
+                            inputs=input_data,
+                            quant_inputs=quant_input_data,
                             quant_configs=input_configs,
                         )
                     elif isinstance(operation_runtime_hook, RuntimeHook):
@@ -617,8 +616,8 @@ class TorchExecutor(BaseGraphExecutor):
                 # feed value to graph variables.
                 for output_idx, output_var in enumerate(operation.outputs):
                     output_var = operation.outputs[output_idx]
-                    output_var.value = outputs[output_idx]
-
+                    if (output_value := outputs[output_idx]) is not None:
+                        output_var.value = output_value
                     if output_var.name in output_names:
                         result_collector[output_names.index(output_var.name)] = outputs[
                             output_idx
@@ -641,12 +640,11 @@ class TorchExecutor(BaseGraphExecutor):
         # end for
         return result_collector
 
-    @torch.no_grad()
     @empty_ppq_cache
     def tracing_operation_meta(
         self,
         inputs: GraphInput,
-        output_names: Optional[List[str]] = None,
+        output_names: Optional[Sequence[str]] = None,
     ) -> None:
         """Tracing meta data for each operation, if there are some already
         created meta data with your operation, They will be override without
@@ -660,10 +658,9 @@ class TorchExecutor(BaseGraphExecutor):
         for op_name, operation in self._graph.operations.items():
             hooks[op_name] = TorchMetaDataTracingHook(operation=operation)
 
-        self._forward_operations(
+        self.forward(
             inputs=inputs,
             output_names=output_names,
-            executing_order=self._executing_order,
             hooks=hooks,
         )
 
@@ -736,9 +733,9 @@ class TorchExecutor(BaseGraphExecutor):
 
     def partial_graph_forward(
         self,
-        operations: List[Operation],
+        operations: Sequence[Operation],
         feed_dict: Dict[str, torch.Tensor],
-        output_names: List[str],
+        output_names: Sequence[str],
         hooks: Optional[Dict[str, RuntimeHook]] = None,
     ) -> List[torch.Tensor]:
         """This forward function allows you to execute a series operations in

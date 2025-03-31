@@ -116,7 +116,7 @@ class OperationForwardProtocol(Protocol):
     def __call__(
         self,
         op: Operation,
-        values: Sequence[torch.Tensor],
+        values: Sequence[torch.Tensor | None],
         ctx: Optional[TorchBackendContext] = None,
         **kwargs,
     ) -> torch.Tensor | Tuple[torch.Tensor, ...]:

@@ -568,7 +568,7 @@ class ONNXRUNTIMExporter(OnnxExporter):
         self,
         file_path: str | os.PathLike,
         graph: BaseGraph,
-        config_path: Optional[str] = None,
+        config_path: Optional[str | os.PathLike] = None,
         save_as_external_data: bool = False,
         quantized_param: bool = True,
         remove_activation: bool = True,

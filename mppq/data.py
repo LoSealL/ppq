@@ -3,7 +3,7 @@
 You are not allowed to modify this 请勿修改此文件
 """
 
-from enum import Enum
+from enum import IntEnum
 from numbers import Number
 from typing import Any, Literal, Optional, Sequence, overload
 
@@ -14,7 +14,7 @@ from onnx import TensorProto
 from torch import dtype as torch_type
 
 
-class DataType(Enum):
+class DataType(IntEnum):
     """
     DataType defines all PPQ internal data type and its enumeration value.
         ATTENTION: PPQ shares same data type enumeration value with Onnx.
@@ -113,8 +113,8 @@ class DataType(Enum):
             DataType.FP32: np_type("float32"),
             DataType.FP64: np_type("float64"),
         }
-        assert isinstance(dtype, DataType)
-        return numpy_converting_dict[dtype]
+        assert isinstance(dtype, int)
+        return numpy_converting_dict[DataType(dtype)]
 
     @classmethod
     def to_torch(cls, dtype) -> torch_type:
@@ -131,8 +131,8 @@ class DataType(Enum):
             DataType.FP64: torch.float64,
             DataType.FP8_E5M2: torch.float8_e5m2,
         }
-        assert isinstance(dtype, DataType)
-        return torch_converting_dict[dtype]
+        assert isinstance(dtype, int)
+        return torch_converting_dict[DataType(dtype)]
 
 
 @overload
