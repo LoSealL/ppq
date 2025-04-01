@@ -7,7 +7,7 @@ Copyright mPPQ/PPQ 2025
 Minimized PPQ quantizer package.
 """
 
-from mppq import api
+from . import api
 
 __all__ = ["api"]
-__version__ = "0.7.3"
+__version__ = "0.7.4"

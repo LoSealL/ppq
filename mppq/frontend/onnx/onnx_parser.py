@@ -208,8 +208,9 @@ class OnnxParser(GraphBuilder):
     ) -> BaseGraph:
         """Build PPQ IR graph from an onnx file."""
         if kw:
+            keys = "\n  ".join(kw.keys())
             self._log.warning("Extra argument is not accepted! Ignoring:")
-            self._log.warning(f'\n  {"\n  ".join(kw.keys())}')
+            self._log.warning(f"\n  {keys}")
         if isinstance(model_object, onnx.ModelProto):
             model_pb = model_object
         elif not Path(model_object).exists():
