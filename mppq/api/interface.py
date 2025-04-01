@@ -18,6 +18,7 @@ from mppq.api.extension import (
     _PLATFORM_TO_QUANTIZER_,
 )
 from mppq.common import DEFAULT_QUANTIZE_OP
+from mppq.defs import empty_ppq_cache
 from mppq.dispatcher import DISPATCHER_TABLE
 from mppq.dispatcher.base import GraphDispatcher
 from mppq.dispatcher.scope import IgnoredScope
@@ -27,8 +28,11 @@ from mppq.ir.base.command import GraphCommand, GraphCommandType
 from mppq.ir.base.graph import BaseGraph, GraphBuilder, GraphExporter
 from mppq.ir.morph import GraphFormatter, GraphMerger, GraphReplacer
 from mppq.quant import TargetPrecision
+from mppq.quantization.analyse import graphwise_error_analyse, layerwise_error_analyse
 from mppq.quantizer import QUANTIZER, BaseQuantizer
 from mppq.quantizer.base import QuantizationOptimizationPass
+from mppq.utils.qfunction import ppq_fake_quant, ppq_quant_toint
+from mppq.utils.round import ppq_tensor_round
 
 
 def load_graph(graph_file: Any, parser: GraphBuilder) -> BaseGraph:
@@ -339,3 +343,22 @@ def quantize(
     )
     exporter = EXPORTER[_PLATFORM_TO_PARSER_[platform]]()
     export_graph(graph, f, exporter=exporter)
+
+
+__all__ = [
+    "load_graph",
+    "load_onnx_graph",
+    "export_graph",
+    "export_onnx_graph",
+    "export_config",
+    "format_graph",
+    "dispatch_graph",
+    "load_quantizer",
+    "quantize",
+    "empty_ppq_cache",
+    "graphwise_error_analyse",
+    "layerwise_error_analyse",
+    "ppq_tensor_round",
+    "ppq_fake_quant",
+    "ppq_quant_toint",
+]

@@ -10,8 +10,14 @@ Users are always encouraged to use functions and object within this package.
 推荐用户仅使用该包内的函数和对象。
 """
 
-from mppq import __version__
-from mppq.api.extension import register_operation, register_platform
+from mppq.api.extension import (
+    BaseQuantizer,
+    GraphBuilder,
+    GraphDispatcher,
+    GraphExporter,
+    register_operation,
+    register_platform,
+)
 from mppq.api.interface import (
     dispatch_graph,
     export_config,
@@ -23,15 +29,11 @@ from mppq.api.interface import (
     load_quantizer,
     quantize,
 )
-from mppq.dispatcher.base import GraphDispatcher
-from mppq.executor.torch import TorchExecutor
+from mppq.api.types import TorchExecutor
 from mppq.ffi import ENABLE_CUDA_KERNEL
-from mppq.frontend.base import GraphBuilder, GraphExporter
 from mppq.logger import set_level as set_log_level
-from mppq.quantizer.base import BaseQuantizer
 
 __all__ = [
-    "__version__",
     "TorchExecutor",
     "ENABLE_CUDA_KERNEL",
     "set_log_level",
