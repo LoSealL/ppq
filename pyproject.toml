@@ -38,7 +38,10 @@ Home = "https://github.com/LoSealL/ppq"
 version = { attr = "mppq.__version__" }
 
 [tool.setuptools.packages.find]
-include = ["mppq"]
+include = ["mppq*"]
+
+[tool.setuptools.package-data]
+mppq = ["**/*.cu", "**/*.cuh", "**/*.cc", "**/*.h"]
 
 [tool.pyright]
 include = ["mppq"]
