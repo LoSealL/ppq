@@ -180,7 +180,7 @@ class QuantableOperation(Operation):
 
     def __deepcopy__(self, memo=None) -> "QuantableOperation":
         return QuantableOperation(
-            convert_from=deepcopy(self, memo),
+            convert_from=super().__deepcopy__(memo),
             quantize_config=deepcopy(self.config, memo),
             platform=self.precision,
         )
