@@ -727,9 +727,9 @@ class TensorQuantizationConfig(Serializable):
         if there is an non-empty scale and offset, they will be cloned too.
         """
         scale, offset = None, None
-        if self.scale is not None:
+        if self._scale is not None:
             scale = deepcopy(self.scale, memo)
-        if self.offset is not None:
+        if self._offset is not None:
             offset = deepcopy(self.offset, memo)
         config = TensorQuantizationConfig(
             policy=self.policy,

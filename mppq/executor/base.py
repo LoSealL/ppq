@@ -159,7 +159,7 @@ class BaseGraphExecutor(metaclass=ABCMeta):
     def forward(
         self,
         inputs: GraphInput,
-        output_names: Optional[Sequence[str]] = None,
+        output_names: Optional[List[str]] = None,
         hooks: Optional[Mapping[str, RuntimeHook]] = None,
     ) -> List[torch.Tensor]:
         """Forward a graph from given inputs to required output names.
@@ -173,7 +173,7 @@ class BaseGraphExecutor(metaclass=ABCMeta):
     def tracing_operation_meta(
         self,
         inputs: GraphInput,
-        output_names: Optional[Sequence[str]] = None,
+        output_names: Optional[List[str]] = None,
     ) -> None:
         raise NotImplementedError("Please implement this function first.")
 
@@ -214,7 +214,7 @@ class BaseGraphExecutor(metaclass=ABCMeta):
     def __call__(
         self,
         inputs: GraphInput,
-        output_names: Optional[Sequence[str]] = None,
+        output_names: Optional[List[str]] = None,
     ) -> List[torch.Tensor]:
         return self.forward(inputs=inputs, output_names=output_names)
 
