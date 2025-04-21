@@ -4,6 +4,7 @@ You are not allowed to modify this 请勿修改此文件
 """
 
 import time  # for hash generation
+from contextlib import suppress
 from copy import deepcopy
 from enum import Enum, IntEnum
 from typing import Any, Dict, Iterator, List, Optional
@@ -129,6 +130,28 @@ class QuantizationPolicy:
     冲突的策略将会抛出异常 AssertionError.
     """
 
+    # fmt: off
+    # pylint: disable=line-too-long
+    _ALC = QuantizationProperty.ASYMMETRIC | QuantizationProperty.LINEAR | QuantizationProperty.PER_CHANNEL # noqa
+    _ALT = QuantizationProperty.ASYMMETRIC | QuantizationProperty.LINEAR | QuantizationProperty.PER_TENSOR # noqa
+    _SLC = QuantizationProperty.SYMMETRIC | QuantizationProperty.LINEAR | QuantizationProperty.PER_CHANNEL # noqa
+    _SLT = QuantizationProperty.SYMMETRIC | QuantizationProperty.LINEAR | QuantizationProperty.PER_TENSOR # noqa
+    _ALT2 = QuantizationProperty.ASYMMETRIC | QuantizationProperty.LINEAR | QuantizationProperty.PER_TENSOR | QuantizationProperty.POWER_OF_2 # noqa
+    _SLT2 = QuantizationProperty.SYMMETRIC | QuantizationProperty.LINEAR | QuantizationProperty.PER_TENSOR | QuantizationProperty.POWER_OF_2 # noqa
+    _ALC2 = QuantizationProperty.ASYMMETRIC | QuantizationProperty.LINEAR | QuantizationProperty.PER_CHANNEL | QuantizationProperty.POWER_OF_2 # noqa
+    _SLC2 = QuantizationProperty.SYMMETRIC | QuantizationProperty.LINEAR | QuantizationProperty.PER_CHANNEL | QuantizationProperty.POWER_OF_2 # noqa
+    _SFC2 = QuantizationProperty.SYMMETRIC | QuantizationProperty.FLOATING | QuantizationProperty.PER_CHANNEL | QuantizationProperty.POWER_OF_2 # noqa
+    _SFT2 = QuantizationProperty.SYMMETRIC | QuantizationProperty.FLOATING | QuantizationProperty.PER_TENSOR | QuantizationProperty.POWER_OF_2 # noqa
+    _SLTD = QuantizationProperty.SYMMETRIC | QuantizationProperty.LINEAR | QuantizationProperty.PER_TENSOR | QuantizationProperty.DYNAMIC # noqa
+    _ALTD = QuantizationProperty.ASYMMETRIC | QuantizationProperty.LINEAR | QuantizationProperty.PER_TENSOR | QuantizationProperty.DYNAMIC # noqa
+    _SLCD = QuantizationProperty.SYMMETRIC | QuantizationProperty.LINEAR | QuantizationProperty.PER_CHANNEL | QuantizationProperty.DYNAMIC # noqa
+    _ALCD = QuantizationProperty.ASYMMETRIC | QuantizationProperty.LINEAR | QuantizationProperty.PER_CHANNEL | QuantizationProperty.DYNAMIC # noqa
+    _SLTD2 = QuantizationProperty.SYMMETRIC | QuantizationProperty.LINEAR | QuantizationProperty.PER_TENSOR | QuantizationProperty.DYNAMIC | QuantizationProperty.POWER_OF_2 # noqa
+    _ALTD2 = QuantizationProperty.ASYMMETRIC | QuantizationProperty.LINEAR | QuantizationProperty.PER_TENSOR | QuantizationProperty.DYNAMIC | QuantizationProperty.POWER_OF_2 # noqa
+    _SLCD2 = QuantizationProperty.SYMMETRIC | QuantizationProperty.LINEAR | QuantizationProperty.PER_CHANNEL | QuantizationProperty.DYNAMIC | QuantizationProperty.POWER_OF_2 # noqa
+    _ALCD2 = QuantizationProperty.ASYMMETRIC | QuantizationProperty.LINEAR | QuantizationProperty.PER_CHANNEL | QuantizationProperty.DYNAMIC | QuantizationProperty.POWER_OF_2 # noqa
+    # fmt: on
+
     def __init__(self, policy: int | QuantizationProperty) -> None:
         QuantizationPolicy._check(policy)
         self._policy = int(policy)
@@ -147,33 +170,102 @@ class QuantizationPolicy:
 
     @staticmethod
     def _check(policy: int):
-        # fmt: off
         assert policy in {
-            # pylint: disable=line-too-long
-            QuantizationProperty.ASYMMETRIC | QuantizationProperty.LINEAR | QuantizationProperty.PER_CHANNEL, # noqa
-            QuantizationProperty.ASYMMETRIC | QuantizationProperty.LINEAR | QuantizationProperty.PER_TENSOR, # noqa
-            QuantizationProperty.SYMMETRIC | QuantizationProperty.LINEAR | QuantizationProperty.PER_CHANNEL, # noqa
-            QuantizationProperty.SYMMETRIC | QuantizationProperty.LINEAR | QuantizationProperty.PER_TENSOR, # noqa
-            QuantizationProperty.ASYMMETRIC | QuantizationProperty.LINEAR | QuantizationProperty.PER_TENSOR | QuantizationProperty.POWER_OF_2, # noqa
-            QuantizationProperty.SYMMETRIC | QuantizationProperty.LINEAR | QuantizationProperty.PER_TENSOR | QuantizationProperty.POWER_OF_2, # noqa
-            QuantizationProperty.ASYMMETRIC | QuantizationProperty.LINEAR | QuantizationProperty.PER_CHANNEL | QuantizationProperty.POWER_OF_2, # noqa
-            QuantizationProperty.SYMMETRIC | QuantizationProperty.LINEAR | QuantizationProperty.PER_CHANNEL | QuantizationProperty.POWER_OF_2, # noqa
-            QuantizationProperty.SYMMETRIC | QuantizationProperty.FLOATING | QuantizationProperty.PER_CHANNEL | QuantizationProperty.POWER_OF_2, # noqa
-            QuantizationProperty.SYMMETRIC | QuantizationProperty.FLOATING | QuantizationProperty.PER_TENSOR | QuantizationProperty.POWER_OF_2, # noqa
-            QuantizationProperty.SYMMETRIC | QuantizationProperty.LINEAR | QuantizationProperty.PER_TENSOR | QuantizationProperty.DYNAMIC, # noqa
-            QuantizationProperty.ASYMMETRIC | QuantizationProperty.LINEAR | QuantizationProperty.PER_TENSOR | QuantizationProperty.DYNAMIC, # noqa
-            QuantizationProperty.SYMMETRIC | QuantizationProperty.LINEAR | QuantizationProperty.PER_CHANNEL | QuantizationProperty.DYNAMIC, # noqa
-            QuantizationProperty.ASYMMETRIC | QuantizationProperty.LINEAR | QuantizationProperty.PER_CHANNEL | QuantizationProperty.DYNAMIC, # noqa
-            QuantizationProperty.SYMMETRIC | QuantizationProperty.LINEAR | QuantizationProperty.PER_TENSOR | QuantizationProperty.DYNAMIC | QuantizationProperty.POWER_OF_2, # noqa
-            QuantizationProperty.ASYMMETRIC | QuantizationProperty.LINEAR | QuantizationProperty.PER_TENSOR | QuantizationProperty.DYNAMIC | QuantizationProperty.POWER_OF_2, # noqa
-            QuantizationProperty.SYMMETRIC | QuantizationProperty.LINEAR | QuantizationProperty.PER_CHANNEL | QuantizationProperty.DYNAMIC | QuantizationProperty.POWER_OF_2, # noqa
-            QuantizationProperty.ASYMMETRIC | QuantizationProperty.LINEAR | QuantizationProperty.PER_CHANNEL | QuantizationProperty.DYNAMIC | QuantizationProperty.POWER_OF_2, # noqa
+            QuantizationPolicy._ALC,
+            QuantizationPolicy._ALT,
+            QuantizationPolicy._SLC,
+            QuantizationPolicy._SLT,
+            QuantizationPolicy._ALT2,
+            QuantizationPolicy._SLT2,
+            QuantizationPolicy._ALC2,
+            QuantizationPolicy._SLC2,
+            QuantizationPolicy._SFC2,
+            QuantizationPolicy._SFT2,
+            QuantizationPolicy._SLTD,
+            QuantizationPolicy._ALTD,
+            QuantizationPolicy._SLCD,
+            QuantizationPolicy._ALCD,
+            QuantizationPolicy._SLTD2,
+            QuantizationPolicy._ALTD2,
+            QuantizationPolicy._SLCD2,
+            QuantizationPolicy._ALCD2,
         }
-        # fmt: on
 
     def to_dict(self) -> Dict[str, bool]:
         """return a dictionary to describe this policy."""
         return {p.name: self.has_property(p) for p in QuantizationProperty}
+
+    @classmethod
+    def ALC(cls):
+        return cls(QuantizationPolicy._ALC)
+
+    @classmethod
+    def ALT(cls) -> "QuantizationPolicy":
+        return cls(QuantizationPolicy._ALT)
+
+    @classmethod
+    def SLC(cls) -> "QuantizationPolicy":
+        return cls(QuantizationPolicy._SLC)
+
+    @classmethod
+    def SLT(cls) -> "QuantizationPolicy":
+        return cls(QuantizationPolicy._SLT)
+
+    @classmethod
+    def ALT2(cls) -> "QuantizationPolicy":
+        return cls(QuantizationPolicy._ALT2)
+
+    @classmethod
+    def SLT2(cls) -> "QuantizationPolicy":
+        return cls(QuantizationPolicy._SLT2)
+
+    @classmethod
+    def ALC2(cls) -> "QuantizationPolicy":
+        return cls(QuantizationPolicy._ALC2)
+
+    @classmethod
+    def SLC2(cls) -> "QuantizationPolicy":
+        return cls(QuantizationPolicy._SLC2)
+
+    @classmethod
+    def SFC2(cls) -> "QuantizationPolicy":
+        return cls(QuantizationPolicy._SFC2)
+
+    @classmethod
+    def SFT2(cls) -> "QuantizationPolicy":
+        return cls(QuantizationPolicy._SFT2)
+
+    @classmethod
+    def SLTD(cls) -> "QuantizationPolicy":
+        return cls(QuantizationPolicy._SLTD)
+
+    @classmethod
+    def ALTD(cls) -> "QuantizationPolicy":
+        return cls(QuantizationPolicy._ALTD)
+
+    @classmethod
+    def SLCD(cls) -> "QuantizationPolicy":
+        return cls(QuantizationPolicy._SLCD)
+
+    @classmethod
+    def ALCD(cls) -> "QuantizationPolicy":
+        return cls(QuantizationPolicy._ALCD)
+
+    @classmethod
+    def SLTD2(cls) -> "QuantizationPolicy":
+        return cls(QuantizationPolicy._SLTD2)
+
+    @classmethod
+    def ALTD2(cls) -> "QuantizationPolicy":
+        return cls(QuantizationPolicy._ALTD2)
+
+    @classmethod
+    def SLCD2(cls) -> "QuantizationPolicy":
+        return cls(QuantizationPolicy._SLCD2)
+
+    @classmethod
+    def ALCD2(cls) -> "QuantizationPolicy":
+        return cls(QuantizationPolicy._ALCD2)
 
 
 class QuantizationStates(Enum):
@@ -580,10 +672,14 @@ class TensorQuantizationConfig(Serializable):
         if dominator == self:
             return
         self._dominator = master
-        if master.scale is not None and master.offset is not None:
+        if master._scale is not None and master._offset is not None:
             self.state = QuantizationStates.PASSIVE
+            if master == self:
+                self.state = QuantizationStates.ACTIVATED
         else:
             self.state = QuantizationStates.PASSIVE_INIT
+            if master == self:
+                self.state = QuantizationStates.INITIAL
 
     def is_revisable(self):
         return self.dominated_by == self and self.state in {
@@ -727,9 +823,9 @@ class TensorQuantizationConfig(Serializable):
         if there is an non-empty scale and offset, they will be cloned too.
         """
         scale, offset = None, None
-        if self.scale is not None:
+        with suppress(ValueError):
             scale = deepcopy(self.scale, memo)
-        if self.offset is not None:
+        with suppress(ValueError):
             offset = deepcopy(self.offset, memo)
         config = TensorQuantizationConfig(
             policy=self.policy,
@@ -762,7 +858,6 @@ class OperationQuantizationConfig:
         self,
         input_quantization_configs: Optional[List[TensorQuantizationConfig]] = None,
         output_quantization_configs: Optional[List[TensorQuantizationConfig]] = None,
-        is_positive_quant_op: bool = True,
     ):
         """Create an operation quantization configuration.
 
@@ -775,11 +870,6 @@ class OperationQuantizationConfig:
 
             ATTENTION: whether a variable is gonna to be quantized or not, it must have
             a quantization configuration.
-
-            is_positive_quant_op (bool, optional): [description]. Defaults to True.
-                some operations are passively quantized, such as Maxpooling, Padding.
-                For those operations, set this property as False, PPQ will use this
-                property to optimize your graph.
         """
         self.input_quantization_config = self._check_famliy_config(
             input_quantization_configs or []
@@ -787,7 +877,6 @@ class OperationQuantizationConfig:
         self.output_quantization_config = self._check_famliy_config(
             output_quantization_configs or []
         )
-        self.is_active_quant_op = is_positive_quant_op
 
     def _check_famliy_config(self, famliy_configs: List[TensorQuantizationConfig]):
         for famliy_config in famliy_configs:
@@ -827,5 +916,4 @@ class OperationQuantizationConfig:
             output_quantization_configs=[
                 deepcopy(i, memo) for i in self.output_quantization_config
             ],
-            is_positive_quant_op=self.is_active_quant_op,
         )
