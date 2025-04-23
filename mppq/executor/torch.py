@@ -310,10 +310,18 @@ class TorchExecutor(BaseGraphExecutor):
             you can not select gpu to executing yet,
             graph will always be send to the very first visible cuda device.
         ]. Defaults to 'cuda'.
+
+        feedback (List[tuple]): [('output_1', 'input_2')]
+        # iter 1, executor({input_2: init_tensor_2})
+        # iter 2, input_2 will be omitted and use output_1's value.
     """
 
     def __init__(
-        self, graph: BaseGraph, fp16_mode: bool = True, device: str = "cuda"
+        self,
+        graph: BaseGraph,
+        feedback: Optional[List[tuple]] = None,
+        fp16_mode: bool = True,
+        device: str = "cuda",
     ) -> None:
         self._default_quant_fn = ppq_fake_quant
         self._deployed = False
@@ -325,6 +333,17 @@ class TorchExecutor(BaseGraphExecutor):
         # fp16 is not available for now.
         self.fp16_mode = fp16_mode
         self.deploy()
+        self._feedback = feedback
+        self.feedback_tensors = {}
+        self.feedback_mapping = {}
+        if feedback:
+            for src, dst in feedback:
+                if src not in graph.outputs:
+                    raise ValueError(f"{src} is not an output of the graph.")
+                if dst not in graph.inputs:
+                    raise ValueError(f"{dst} is not an input of the graph.")
+                self.feedback_tensors[src] = None
+                self.feedback_mapping[dst] = src
 
     def register_quantize_delegate(
         self, config: TensorQuantizationConfig, delegator: TorchQuantizeDelegator
@@ -505,6 +524,11 @@ class TorchExecutor(BaseGraphExecutor):
         hooks: Optional[Mapping[str, RuntimeHook]] = None,
     ) -> List[torch.Tensor]:
         for key, value in inputs.items():
+            if value is None:
+                assert key in self.feedback_mapping
+                feedback_value = self.feedback_tensors[self.feedback_mapping[key]]
+                self._graph.inputs[key].value = feedback_value
+                continue
             if not isinstance(value, torch.Tensor):
                 raise TypeError(
                     "TorchExecutor can only accept tensor as its input, "
@@ -523,7 +547,18 @@ class TorchExecutor(BaseGraphExecutor):
         last_idx = 0  # record last variable
         if output_names is None:
             output_names = [name for name in self._graph.outputs]
-        for name in output_names:
+
+        # we should get feedback outputs for these partial graphs whose inputs include
+        # feebback, so we add feedback_outputs into output_names to refresh 'last_idx'.
+        feedback_outputs: List[str] = []
+        for inp in inputs:
+            if (
+                inp in self.feedback_mapping
+                and self.feedback_mapping[inp] not in output_names
+            ):
+                feedback_outputs.append(self.feedback_mapping[inp])
+
+        for name in list(output_names) + feedback_outputs:
             if name not in self._graph.variables:
                 raise KeyError(
                     f"You are requiring output value of variable {name}"
@@ -622,6 +657,9 @@ class TorchExecutor(BaseGraphExecutor):
                         result_collector[output_names.index(output_var.name)] = outputs[
                             output_idx
                         ]
+                    # collect feedback tensors
+                    if output_var.name in self.feedback_mapping.values():
+                        self.feedback_tensors[output_var.name] = outputs[output_idx]
             except Exception as e:
                 raise RuntimeError(f"Op Execution Error: {str(operation)}") from e
 
@@ -735,7 +773,7 @@ class TorchExecutor(BaseGraphExecutor):
         self,
         operations: Sequence[Operation],
         feed_dict: Dict[str, torch.Tensor],
-        output_names: Sequence[str],
+        output_names: List[str],
         hooks: Optional[Dict[str, RuntimeHook]] = None,
     ) -> List[torch.Tensor]:
         """This forward function allows you to execute a series operations in
