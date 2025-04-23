@@ -59,17 +59,18 @@ class OpenvinoExporter(ONNXRUNTIMExporter):
         elif config.policy.has_property(QuantizationProperty.FLOATING):
             # Following code will export Linear Quantization Config
             # That is for FP32 -> FP8
+            offset_dtype, value_type = self.infer_qtype(config)
             scale = convert_any_to_tensor(config.scale.clone(), dtype=torch.float32)
-            offset = convert_any_to_tensor(config.offset.clone(), dtype=torch.float32)
+            offset = convert_any_to_tensor(config.offset.clone(), dtype=offset_dtype)
 
             created = graph.create_operation(
-                op_type="QuantizeFloating",
-                attributes={
-                    "min": config.quant_min,
-                    "max": config.quant_max,
-                    "exponent": config.exponent_bits,
-                    "mantissa": config.mantissa_bits,
-                },
+                op_type="QuantizeLinear",
+                # attributes={
+                #     "min": config.quant_min,
+                #     "max": config.quant_max,
+                #     "exponent": config.exponent_bits,
+                #     "mantissa": config.mantissa_bits,
+                # },
             )
 
             if config.policy.has_property(QuantizationProperty.PER_CHANNEL):
@@ -93,6 +94,7 @@ class OpenvinoExporter(ONNXRUNTIMExporter):
                 name=None, value=offset, is_parameter=True, dest_ops=[created]
             )
 
+            created.outputs[0].dtype = value_type
             created.outputs[0].shape = var.shape
             created.inputs[0].shape = var.shape
             return created
@@ -149,17 +151,18 @@ class OpenvinoExporter(ONNXRUNTIMExporter):
             return created
 
         elif config.policy.has_property(QuantizationProperty.FLOATING):
+            offset_dtype, value_type = self.infer_qtype(config)
             scale = convert_any_to_tensor(config.scale.clone(), dtype=torch.float32)
-            offset = convert_any_to_tensor(config.offset.clone(), dtype=torch.float32)
+            offset = convert_any_to_tensor(config.offset.clone(), dtype=offset_dtype)
 
             created = graph.create_operation(
-                op_type="DequantizeFloating",
-                attributes={
-                    "min": config.quant_min,
-                    "max": config.quant_max,
-                    "exponent": config.exponent_bits,
-                    "mantissa": config.mantissa_bits,
-                },
+                op_type="DequantizeLinear",
+                # attributes={
+                #     "min": config.quant_min,
+                #     "max": config.quant_max,
+                #     "exponent": config.exponent_bits,
+                #     "mantissa": config.mantissa_bits,
+                # },
             )
 
             if config.policy.has_property(QuantizationProperty.PER_CHANNEL):
@@ -183,8 +186,10 @@ class OpenvinoExporter(ONNXRUNTIMExporter):
                 name=None, value=offset, is_parameter=True, dest_ops=[created]
             )
 
-            created.outputs[0].shape = var.shape
             created.inputs[0].shape = var.shape
+            created.inputs[0].dtype = value_type
+            created.outputs[0].shape = var.shape
+            created.outputs[0].dtype = torch.float32
 
             return created
 
