@@ -30,7 +30,7 @@ jobs:
           python -m pip uninstall ppq mppq -q --no-input -y
           python -m pip install -U pytest pytest-cov
           python -m pip install -U onnx "protobuf<6" pooch tabulate tqdm
-          python -m pip install -e . --no-deps --no-build-isolation
+          python -m pip install -e . --no-deps
       - name: Run pytest and coverage
         run: |
           python -m pytest --cov=mppq tests

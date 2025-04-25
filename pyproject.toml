@@ -1,6 +1,6 @@
 [build-system]
-requires = ["setuptools"]
-build-backend = "setuptools.build_meta"
+requires = ["flit_core >=3.2,<4"]
+build-backend = "flit_core.buildapi"
 
 [project]
 name = "mppq"
@@ -33,15 +33,6 @@ dynamic = ["version"]
 
 [project.urls]
 Home = "https://github.com/LoSealL/ppq"
-
-[tool.setuptools.dynamic]
-version = { attr = "mppq.__version__" }
-
-[tool.setuptools.packages.find]
-include = ["mppq*"]
-
-[tool.setuptools.package-data]
-mppq = ["**/*.cu", "**/*.cuh", "**/*.cc", "**/*.h"]
 
 [tool.pyright]
 include = ["mppq"]
