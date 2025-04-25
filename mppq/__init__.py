@@ -10,4 +10,4 @@ Minimized PPQ quantizer package.
 from mppq import api
 
 __all__ = ["api"]
-__version__ = "0.7.5"
+__version__ = "0.7.6"
