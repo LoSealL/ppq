@@ -15,7 +15,7 @@ from mppq.quant import (
     QuantVisibility,
     TensorQuantizationConfig,
 )
-from mppq.utils.qfunction import ppq_quant_toint
+from mppq.utils.qfunction import ppq_quant_tofp8, ppq_quant_toint
 from mppq.utils.round import ppq_tensor_round
 
 
@@ -91,6 +91,12 @@ class ONNXRUNTIMExporter(OnnxExporter):
         if config.num_of_bits > 8:
             offset_dtype = torch.int32
             value_dtype = torch.int32
+        if config.exponent_bits == 4:
+            offset_dtype = torch.float8_e4m3fn
+            value_dtype = torch.float8_e4m3fn
+        if config.exponent_bits == 5:
+            offset_dtype = torch.float8_e5m2
+            value_dtype = torch.float8_e5m2
         return offset_dtype, value_dtype
 
     def insert_quantize_node(
@@ -467,6 +473,10 @@ class ONNXRUNTIMExporter(OnnxExporter):
                     QuantizationProperty.LINEAR
                 ):
                     var.value = ppq_quant_toint(tensor=var.value, config=config)
+                if quantized_param and config.policy.has_property(
+                    QuantizationProperty.FLOATING
+                ):
+                    var.value = ppq_quant_tofp8(tensor=var.value, config=config)
 
             elif not var.is_parameter:
 

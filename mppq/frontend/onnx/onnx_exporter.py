@@ -231,8 +231,11 @@ class OnnxExporter(GraphExporter):
             value = [value.item()]
         elif value.ndim >= 1:
             value = convert_any_to_numpy(value, False).flatten()
-            value = value.tobytes()
-            is_raw_format = True
+            if "float8" in str(pytorch_dtype):
+                is_raw_format = False
+            else:
+                value = value.tobytes()
+                is_raw_format = True
         tensor_proto = make_tensor(
             name=variable.name,
             data_type=onnx_dtype,
